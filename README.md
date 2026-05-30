@@ -22,12 +22,13 @@ This is Coda — a local AI coding assistant integrated directly into your Linux
 
 ## How It Looks
 
-Right click inside any project folder:
-📁 My Project
-└── [right click on empty space]
-├── Open Terminal
-├── Call Coda        ← your AI assistant
-└── ...
+## How It Looks
+
+![Right-click menu](Call%20Coda.png)
+
+![System tray icon](System%20tray.png)
+
+![Coda terminal](Launch%20Coda.png)
 
 A terminal opens with Coda ready to work:
 
