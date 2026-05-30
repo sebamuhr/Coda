@@ -22,8 +22,6 @@ This is Coda — a local AI coding assistant integrated directly into your Linux
 
 ## How It Looks
 
-## How It Looks
-
 ![Right-click menu](Call%20Coda.png)
 
 ![System tray icon](System%20tray.png)
@@ -35,7 +33,6 @@ A terminal opens with Coda ready to work:
 create a weather app with vanilla HTML CSS and JS
 fix the temperature conversion bug in app.js
 add a dark mode toggle to index.html
-
 
 ---
 
