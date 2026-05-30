@@ -10,6 +10,7 @@ This is Coda — a local AI coding assistant integrated directly into your Linux
 
 ## What It Does
 
+- **System tray icon** — lives in your taskbar, click to launch Coda in any folder
 - **Right-click any folder → Call Coda** — launches your AI coding assistant in that folder
 - **Full file editing** — reads, creates, and modifies your project files
 - **Git history on every change** — every edit is automatically committed with a description
@@ -106,6 +107,12 @@ cp coda-tray.py ~/
 ---
 
 ## Usage
+
+### From the system tray
+1. Click the **C** icon in your taskbar
+2. Click **Launch Coda**
+3. Choose your project folder
+4. Done!
 
 ### From the file manager
 1. Open your project folder in Nautilus
