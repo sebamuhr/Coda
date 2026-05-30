@@ -26,6 +26,7 @@ This is Coda — a local AI coding assistant integrated directly into your Linux
 
 ![System tray icon](System%20tray.png)
 
+
 ![Coda terminal](Launch%20Coda.png)
 
 A terminal opens with Coda ready to work:
