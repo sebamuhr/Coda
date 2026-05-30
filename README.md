@@ -138,18 +138,10 @@ coda
 
 ## Tips
 
-- Always launch Coda from inside your project folder
+- Launch Coda from your project folder (right click → "Call Coda")
 - Use `/add .` to let Coda see all your files
 - Keep instructions focused — one task at a time works best
 - Every change is a git commit — you always have a full history
-
----
-
-## The Story
-
-I'm a no-code developer. I started with Cursor AI and loved it — but $60/month adds up fast, especially when you hit the limits. I wanted something I owned, something offline, something that didn't send my code to servers I don't control.
-
-Coda is what I built. It's Aider + Ollama + a bit of Python glue that integrates the whole thing into your desktop. Nothing fancy. Just works.
 
 ---
 
@@ -169,5 +161,3 @@ Pull requests welcome! Ideas for improvement:
 MIT — do whatever you want with it.
 
 ---
-
-*Built with frustration, coffee, and a lot of help from Claude* ☕
