@@ -2,7 +2,7 @@
 
 > **Right-click any folder. Your local AI coding assistant appears. No subscription. No cloud. No limits.**
 
-I was fed up with Cursor's $20/month subscription and hitting limits constantly. So I built my own offline coding assistant that lives on my machine, knows my files, and costs nothing to run.
+I was fed up with Cursor's $60/month subscription and hitting limits constantly. So I built my own offline coding assistant that lives on my machine, knows my files, and costs nothing to run.
 
 This is Coda — a local AI coding assistant integrated directly into your Linux file manager.
 
@@ -22,22 +22,18 @@ This is Coda — a local AI coding assistant integrated directly into your Linux
 ## How It Looks
 
 Right click inside any project folder:
-
-```
 📁 My Project
-  └── [right click on empty space]
-        ├── Open Terminal
-        ├── Call Coda        ← your AI assistant
-        └── ...
-```
+└── [right click on empty space]
+├── Open Terminal
+├── Call Coda        ← your AI assistant
+└── ...
 
 A terminal opens with Coda ready to work:
 
-```
-> create a weather app with vanilla HTML CSS and JS
-> fix the temperature conversion bug in app.js
-> add a dark mode toggle to index.html
-```
+create a weather app with vanilla HTML CSS and JS
+fix the temperature conversion bug in app.js
+add a dark mode toggle to index.html
+
 
 ---
 
@@ -53,9 +49,20 @@ A terminal opens with Coda ready to work:
 
 ## Installation
 
-### 1. Install Aider
+### One-line install (recommended)
 
-Aider is the engine that connects your model to your files.
+```bash
+curl -fsSL https://raw.githubusercontent.com/sebamuhr/Coda/main/install.sh | bash
+```
+
+That's it! The installer will ask you a couple of questions and set everything up automatically — Aider, the terminal command, the right-click menu, and the system tray icon.
+
+### Manual install
+
+<details>
+<summary>Click to expand manual installation steps</summary>
+
+### 1. Install Aider
 
 ```bash
 python3 -m venv ~/aider-env
@@ -71,14 +78,21 @@ Add this to your `~/.bashrc`:
 alias coda='source ~/aider-env/bin/activate && OLLAMA_API_BASE=http://YOUR_OLLAMA_IP:11434 aider --model ollama/YOUR_MODEL_NAME'
 ```
 
-Replace `YOUR_OLLAMA_IP` with your Ollama server IP (or `localhost` if running locally) and `YOUR_MODEL_NAME` with your model (e.g. `qwen2.5-coder:32b`).
-
 Then reload:
 ```bash
 source ~/.bashrc
 ```
 
-### 3. Install the system tray icon (optional)
+### 3. Install the right-click menu extension
+
+```bash
+sudo apt install python3-nautilus gir1.2-ayatanaappindicator3-0.1
+sudo mkdir -p /usr/share/nautilus-python/extensions/
+sudo cp coda_extension.py /usr/share/nautilus-python/extensions/
+nautilus -q
+```
+
+### 4. Install the system tray icon (optional)
 
 ```bash
 /usr/bin/pip3 install pystray pillow --break-system-packages
@@ -87,26 +101,7 @@ cp coda-tray.py ~/
 /usr/bin/python3 ~/coda-tray.py &
 ```
 
-### 4. Install the right-click menu extension
-
-This is the magic — **Call Coda** appears directly when you right-click inside any folder.
-
-```bash
-sudo apt install python3-nautilus gir1.2-ayatanaappindicator3-0.1
-mkdir -p /usr/share/nautilus-python/extensions/
-sudo cp coda_extension.py /usr/share/nautilus-python/extensions/
-nautilus -q
-```
-
-### 5. Install the desktop launcher (optional)
-
-For a folder picker dialog you can launch from anywhere:
-
-```bash
-sudo apt install python3-tk
-cp coda-launcher.py ~/
-python3 ~/coda-launcher.py
-```
+</details>
 
 ---
 
@@ -125,20 +120,18 @@ coda
 ```
 
 ### Inside Coda
-```
 /add .              # add all project files
 /add index.html     # add a specific file
 /undo               # undo last change
 /diff               # see what changed
 /ask                # ask a question without editing files
 /exit               # quit
-```
 
 ---
 
 ## Tips
 
-- Launch Coda from your project folder (right click → "Call Coda")
+- Launch Coda from your project folder — right click → Call Coda
 - Use `/add .` to let Coda see all your files
 - Keep instructions focused — one task at a time works best
 - Every change is a git commit — you always have a full history
@@ -149,7 +142,6 @@ coda
 
 Pull requests welcome! Ideas for improvement:
 
-- One-line installer script
 - Support for other file managers (Dolphin, Thunar)
 - Windows/Mac support
 - Auto-start on login setup
