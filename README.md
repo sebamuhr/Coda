@@ -2,7 +2,7 @@
 
 > **Right-click any folder. Your local AI coding assistant appears. No subscription. No cloud. No limits.**
 
-I was fed up with Cursor's $60/month subscription and hitting limits constantly. So I built my own offline coding assistant that lives on my machine, knows my files, and costs nothing to run.
+I was fed up with Cursor's monthly subscription and hitting limits constantly. So I built my own offline coding assistant that lives on my machine, knows my files, and costs nothing to run.
 
 This is Coda — a local AI coding assistant integrated directly into your Linux file manager.
 
