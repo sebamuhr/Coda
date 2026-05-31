@@ -1,21 +1,24 @@
 # Coda 🤖
 
-> **Right-click any folder. Your local AI coding assistant appears. No subscription. No cloud. No limits.**
+> **Your local AI assistant. Right-click any folder to code. Write emails in plain language. No subscription. No cloud. No limits.**
 
-I was fed up with Cursor's monthly subscription and hitting limits constantly. So I built my own offline coding assistant that lives on my machine, knows my files, and costs nothing to run.
+I was fed up with AI subscriptions and hitting limits constantly. So I built my own offline AI assistant that lives on my machine, knows my files, writes my emails, and costs nothing to run.
 
-This is Coda — a local AI coding assistant integrated directly into your Linux file manager.
+This is Coda — a local AI assistant integrated directly into your Linux desktop.
 
 ---
 
 ## What It Does
 
-- **System tray icon** — lives in your taskbar, click to launch Coda in any folder
+- **System tray icon** — lives in your taskbar, always one click away
 - **Right-click any folder → Call Coda** — launches your AI coding assistant in that folder
+- **Email Agent** — reads your inbox, writes replies in plain language, saves to Gmail Drafts or sends directly
 - **Full file editing** — reads, creates, and modifies your project files
 - **Git history on every change** — every edit is automatically committed with a description
 - **Undo anytime** — `/undo` rolls back the last change instantly
-- **100% offline** — your code never leaves your machine
+- **Any AI provider** — Ollama (local), Claude API, OpenAI, Groq, or any custom endpoint
+- **Preferences window** — configure everything from a clean UI, no config files to edit
+- **100% private** — your code and emails never leave your machine when using local models
 - **No subscription** — runs on your own hardware with your own model
 
 ---
@@ -23,27 +26,49 @@ This is Coda — a local AI coding assistant integrated directly into your Linux
 ## How It Looks
 
 ![Right-click menu](Call%20Coda.png)
-
 ![System tray icon](System%20tray.png)
-
-
 ![Coda terminal](Launch%20Coda.png)
 
-A terminal opens with Coda ready to work:
+---
 
-create a weather app with vanilla HTML CSS and JS
-fix the temperature conversion bug in app.js
-add a dark mode toggle to index.html
+## Coding Assistant
+
+Right click any project folder → **Call Coda** — a terminal opens with your AI ready:
+
+```
+> create a weather app with vanilla HTML CSS and JS
+> fix the temperature conversion bug in app.js  
+> add a dark mode toggle to index.html
+> explain what this function does
+```
+
+Every change is a git commit. Undo anything with `/undo`.
+
+---
+
+## Email Agent
+
+Click **C → Email Agent** in your system tray:
+
+- **Unread, Read, Drafts tabs** — browse your inbox
+- **Select an email** — Coda reads the conversation for context
+- **Describe your reply in plain language** — *"tell him Tuesday works but not Wednesday"*
+- **Coda writes the full professional email**
+- **Save to Drafts** — appears in Gmail ready to review and send
+- **Send Now** — sends directly without leaving Coda
+- **New Email tab** — write fresh emails from scratch the same way
+
+Your emails stay on your machine. Coda connects directly to Gmail (or any IMAP provider) via App Password — no third party involved.
 
 ---
 
 ## Requirements
 
 - Linux (Debian/Ubuntu based — tested on Zorin OS and Ubuntu)
-- [Ollama](https://ollama.ai) running locally or on a server on your network
-- Any Ollama model (recommended: `qwen2.5-coder:32b` or similar)
 - Python 3
 - Nautilus file manager (GNOME)
+- For coding: [Ollama](https://ollama.ai), Claude API, OpenAI, Groq, or any OpenAI-compatible endpoint
+- For email: Gmail App Password (or any IMAP/SMTP provider)
 
 ---
 
@@ -55,7 +80,7 @@ add a dark mode toggle to index.html
 curl -fsSL https://raw.githubusercontent.com/sebamuhr/Coda/main/install.sh | bash
 ```
 
-That's it! The installer will ask you a couple of questions and set everything up automatically — Aider, the terminal command, the right-click menu, and the system tray icon.
+The installer asks a few questions and sets everything up automatically — Aider, the terminal command, the right-click menu, the system tray icon, and the email agent.
 
 ### Manual install
 
@@ -92,14 +117,19 @@ sudo cp coda_extension.py /usr/share/nautilus-python/extensions/
 nautilus -q
 ```
 
-### 4. Install the system tray icon (optional)
+### 4. Install the system tray and email agent
 
 ```bash
-/usr/bin/pip3 install pystray pillow --break-system-packages
-sudo apt install python3-tk
-cp coda-tray.py ~/
-/usr/bin/python3 ~/coda-tray.py &
+/usr/bin/pip3 install pystray pillow requests --break-system-packages
+sudo apt install python3-tk wmctrl libnotify-bin
+mkdir -p ~/Coda
+cp coda-tray.py coda-email.py coda-preferences.py ~/Coda/
+/usr/bin/python3 ~/Coda/coda-tray.py &
 ```
+
+### 5. Configure
+
+Click **C → Preferences** in your system tray and fill in your AI provider and email settings.
 
 </details>
 
@@ -107,40 +137,82 @@ cp coda-tray.py ~/
 
 ## Usage
 
-### From the system tray
-1. Click the **C** icon in your taskbar
-2. Click **Launch Coda**
-3. Choose your project folder
-4. Done!
+### Coding
 
-### From the file manager
-1. Open your project folder in Nautilus
-2. Right-click on empty space inside the folder
-3. Click **Call Coda**
-4. Start giving instructions!
+```
+Right-click any folder → Call Coda
+```
 
-### From the terminal
+Or from the tray: **C → Launch Coda** → choose folder
+
+Or from terminal:
 ```bash
 cd ~/my-project
 coda
 ```
 
-### Inside Coda
+Inside Coda:
+```
 /add .              # add all project files
-/add index.html     # add a specific file
+/add index.html     # add a specific file  
 /undo               # undo last change
 /diff               # see what changed
-/ask                # ask a question without editing files
+/ask                # ask without editing files
 /exit               # quit
+```
+
+### Email
+
+```
+Click C in taskbar → Email Agent
+```
+
+1. Pick **Unread**, **Read**, or **Drafts** tab
+2. Click an email
+3. Type what you want to say in plain language
+4. Click **Write Reply**
+5. Review Coda's reply
+6. **Save to Drafts** or **Send Now**
+
+### Preferences
+
+```
+Click C in taskbar → Preferences
+```
+
+Configure your AI provider, model, API keys, email account, and general settings — all from one window. No config files to edit manually.
+
+---
+
+## Supported AI Providers
+
+| Provider | Works for |
+|----------|-----------|
+| Ollama (local) | Coding + Email — fully offline |
+| Claude API | Coding |
+| OpenAI | Coding |
+| Groq | Coding |
+| Custom endpoint | Coding |
 
 ---
 
 ## Tips
 
-- Launch Coda from your project folder — right click → Call Coda
-- Use `/add .` to let Coda see all your files
+- The **Call Coda** right-click menu only appears when Coda is running — quit from the tray and it disappears
+- Use `/add .` to let Coda see all your project files
 - Keep instructions focused — one task at a time works best
 - Every change is a git commit — you always have a full history
+- For email, **Save to Drafts** is safer — review in Gmail before sending
+
+---
+
+## The Story
+
+I'm a no-code developer. I started with Cursor AI and loved it — but the monthly subscription adds up fast, especially when you hit the limits. I wanted something I owned, something offline, something that didn't send my code to servers I don't control.
+
+Coda is what I built. It's Aider + Ollama + Python glue that integrates the whole thing into your Linux desktop. A coding assistant, an email agent, a preferences window — all in one system tray icon.
+
+Nothing fancy. Just works.
 
 ---
 
@@ -150,7 +222,8 @@ Pull requests welcome! Ideas for improvement:
 
 - Support for other file managers (Dolphin, Thunar)
 - Windows/Mac support
-- Auto-start on login setup
+- More email providers
+- Calendar integration
 
 ---
 
@@ -159,3 +232,5 @@ Pull requests welcome! Ideas for improvement:
 MIT — do whatever you want with it.
 
 ---
+
+*Built with frustration, coffee, and a lot of help from Claude* ☕
