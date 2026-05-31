@@ -235,5 +235,3 @@ Pull requests welcome! Ideas for improvement:
 MIT — do whatever you want with it.
 
 ---
-
-*Built with frustration, coffee, and a lot of help from Claude* ☕
