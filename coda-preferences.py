@@ -38,7 +38,8 @@ class PreferencesApp:
         self.root.configure(bg='#1a1a2e')
         self.config = load_config()
         self.build_ui()
-        self.load_values()
+        # Defer load_values to after the UI is fully laid out
+        self.root.after(100, self.load_values)
 
     def build_ui(self):
         # Title
@@ -173,7 +174,8 @@ class PreferencesApp:
         needs_key = value in ['Claude API', 'OpenAI', 'Groq', 'Custom']
 
         if is_ollama:
-            self.ollama_frame.pack(fill='x', after=self.ai_tab.winfo_children()[1])
+            # Use pack after the provider dropdown label
+            self.ollama_frame.pack(fill='x', after=self.ai_tab.winfo_children()[0])
         else:
             self.ollama_frame.pack_forget()
 
