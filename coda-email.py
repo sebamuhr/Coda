@@ -58,7 +58,7 @@ def decode_str(s):
 
 def strip_html(html):
     html = re.sub(r'<(style|script)[^>]*>.*?</(style|script)>', '', html, flags=re.DOTALL | re.IGNORECASE)
-    html = re.sub(r'<(br|p|div|tr|li)[^>]*>', '\n', html, flags=re.IGNORECASE)
+    html = re.sub(r'<(br|p|div|tr|li)[^>]*>', '\n', flags=re.IGNORECASE)
     html = re.sub(r'<[^>]+>', '', html)
     html = html.replace('&nbsp;', ' ').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&quot;', '"')
     html = re.sub(r'\n{3,}', '\n\n', html)
@@ -188,8 +188,10 @@ USER INSTRUCTION:
 
 Write only the email body. No subject line. Sign off as Sebastian."""
     try:
+        # Strip any protocol prefix from OLLAMA_IP to avoid double http://
+        ollama_ip_clean = OLLAMA_IP.replace('http://', '').replace('https://', '')
         response = requests.post(
-            f'http://{OLLAMA_IP}:11434/api/generate',
+            f'http://{ollama_ip_clean}:11434/api/generate',
             json={'model': MODEL, 'prompt': prompt, 'stream': False},
             timeout=120
         )
