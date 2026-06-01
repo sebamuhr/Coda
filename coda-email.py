@@ -449,9 +449,10 @@ class EmailApp:
                 self.cache[tab] = emails
                 self.root.after(0, lambda: self.render_emails(emails))
                 self.root.after(0, lambda: self.set_status(f"{len(emails)} emails loaded"))
-            except Exception as ex:
+            except Exception as e:
+                error_msg = str(e)
                 self.root.after(0, lambda: self.listbox.delete(0, 'end'))
-                self.root.after(0, lambda: self.listbox.insert('end', f'  Error: {ex}'))
+                self.root.after(0, lambda: self.listbox.insert('end', f'  Error: {error_msg}'))
                 self.root.after(0, lambda: self.set_status("Error loading"))
 
         threading.Thread(target=do_fetch, daemon=True).start()
