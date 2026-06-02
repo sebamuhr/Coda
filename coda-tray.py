@@ -125,19 +125,24 @@ def show_notification(title, message):
 def launch_coda(icon=None, query=None):
     def _pick_and_launch():
         try:
-            result = subprocess.run(
-                ['zenity', '--file-selection', '--directory',
-                 '--title=Choose your project folder', '--filename=' + os.path.expanduser('~/')],
-                capture_output=True, text=True
+            import tkinter as tk
+            from tkinter import filedialog, ttk
+            root = tk.Tk()
+            root.withdraw()
+            ttk.Style(root).theme_use('clam')
+            folder = filedialog.askdirectory(
+                title="Coda — Choose your project folder",
+                initialdir=os.path.expanduser('~/'),
+                parent=root,
             )
-            folder = result.stdout.strip()
+            root.destroy()
             if folder:
                 cfg = load_config()
                 cmd = build_aider_cmd(folder, cfg)
                 provider = cfg.get("provider", "Ollama (local)")
                 subprocess.Popen([
                     'gnome-terminal',
-                    f'--title=Coda 🤖  [{provider}]',
+                    f'--title=Coda  [{provider}]',
                     '--', 'bash', '-c', cmd
                 ])
         except Exception as e:

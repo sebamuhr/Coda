@@ -10,28 +10,33 @@ import json
 import os
 import threading
 import tkinter as tk
-from tkinter import scrolledtext, messagebox
+from tkinter import ttk, scrolledtext, messagebox
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.header import decode_header
 
-# --- Load config ---
-config = {}
-with open('/home/sebastian/.config/coda/email.conf') as f:
-    for line in f:
-        if '=' in line:
-            k, v = line.strip().split('=', 1)
-            config[k] = v
+# --- Config ---
+_config = {}
+try:
+    with open(os.path.expanduser('~/.config/coda/email.conf')) as f:
+        for line in f:
+            if '=' in line:
+                k, v = line.strip().split('=', 1)
+                _config[k] = v
+except Exception:
+    pass
 
-EMAIL = config['EMAIL']
-APP_PASSWORD = config['APP_PASSWORD']
-IMAP_SERVER = config['IMAP_SERVER']
-SMTP_SERVER = config.get('SMTP_SERVER', 'smtp.gmail.com')
-OLLAMA_IP = config.get('OLLAMA_IP', 'localhost')
-MODEL = config.get('MODEL', 'coda:2.0')
-PREFS_FILE = os.path.expanduser('~/.config/coda/window.json')
+EMAIL        = _config.get('EMAIL', '')
+APP_PASSWORD = _config.get('APP_PASSWORD', '')
+IMAP_SERVER  = _config.get('IMAP_SERVER', 'imap.gmail.com')
+SMTP_SERVER  = _config.get('SMTP_SERVER', 'smtp.gmail.com')
+OLLAMA_IP    = _config.get('OLLAMA_IP', 'localhost')
+MODEL        = _config.get('MODEL', 'coda:2.0')
+
+PREFS_FILE           = os.path.expanduser('~/.config/coda/window.json')
 AUTO_REFRESH_MINUTES = 5
 
+# --- Window prefs ---
 def save_prefs(geometry):
     os.makedirs(os.path.dirname(PREFS_FILE), exist_ok=True)
     with open(PREFS_FILE, 'w') as f:
@@ -41,15 +46,15 @@ def load_prefs():
     try:
         with open(PREFS_FILE) as f:
             return json.load(f)
-    except:
+    except Exception:
         return {}
 
+# --- Email utilities ---
 def decode_str(s):
     if s is None:
         return ''
-    decoded = decode_header(s)
     result = ''
-    for part, enc in decoded:
+    for part, enc in decode_header(s):
         if isinstance(part, bytes):
             result += part.decode(enc or 'utf-8', errors='replace')
         else:
@@ -58,27 +63,25 @@ def decode_str(s):
 
 def strip_html(html):
     html = re.sub(r'<(style|script)[^>]*>.*?</(style|script)>', '', html, flags=re.DOTALL | re.IGNORECASE)
-    html = re.sub(r'<(br|p|div|tr|li)[^>]*>', '\n', flags=re.IGNORECASE)
+    html = re.sub(r'<(br|p|div|tr|li)[^>]*>', '\n', html, flags=re.IGNORECASE)
     html = re.sub(r'<[^>]+>', '', html)
     html = html.replace('&nbsp;', ' ').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&quot;', '"')
-    html = re.sub(r'\n{3,}', '\n\n', html)
-    return html.strip()
+    return re.sub(r'\n{3,}', '\n\n', html).strip()
 
 def get_body(msg):
-    plain = ''
-    html = ''
+    plain = html = ''
     if msg.is_multipart():
         for part in msg.walk():
             ct = part.get_content_type()
             if ct == 'text/plain' and not plain:
                 try:
                     plain = part.get_payload(decode=True).decode('utf-8', errors='replace')
-                except:
+                except Exception:
                     pass
             elif ct == 'text/html' and not html:
                 try:
                     html = part.get_payload(decode=True).decode('utf-8', errors='replace')
-                except:
+                except Exception:
                     pass
     else:
         try:
@@ -87,11 +90,11 @@ def get_body(msg):
                 html = raw
             else:
                 plain = raw
-        except:
+        except Exception:
             pass
     if plain:
         return plain[:3000]
-    elif html:
+    if html:
         return strip_html(html)[:3000]
     return ''
 
@@ -101,22 +104,22 @@ def fetch_emails(folder='INBOX', criteria='UNSEEN'):
     mail.select(folder)
     _, data = mail.search(None, criteria)
     ids = data[0].split()[-15:]
-    emails = []
+    result = []
     for eid in reversed(ids):
         _, msg_data = mail.fetch(eid, '(RFC822)')
         msg = email.message_from_bytes(msg_data[0][1])
-        emails.append({
+        result.append({
             'id': eid,
-            'from': decode_str(msg['From']),
-            'to': decode_str(msg['To']),
-            'subject': decode_str(msg['Subject']),
-            'date': decode_str(msg['Date']),
-            'body': get_body(msg),
+            'from':       decode_str(msg['From']),
+            'to':         decode_str(msg['To']),
+            'subject':    decode_str(msg['Subject']),
+            'date':       decode_str(msg['Date']),
+            'body':       get_body(msg),
             'message_id': msg.get('Message-ID', ''),
             'references': msg.get('References', ''),
         })
     mail.logout()
-    return emails
+    return result
 
 def fetch_drafts():
     mail = imaplib.IMAP4_SSL(IMAP_SERVER)
@@ -124,31 +127,29 @@ def fetch_drafts():
     mail.select('"[Gmail]/Drafts"')
     _, data = mail.search(None, 'ALL')
     ids = data[0].split()[-15:]
-    emails = []
+    result = []
     for eid in reversed(ids):
         _, msg_data = mail.fetch(eid, '(RFC822)')
         msg = email.message_from_bytes(msg_data[0][1])
-        emails.append({
+        result.append({
             'id': eid,
-            'from': decode_str(msg['From']),
-            'to': decode_str(msg['To']),
-            'subject': decode_str(msg['Subject']),
-            'date': decode_str(msg['Date']),
-            'body': get_body(msg),
+            'from':       decode_str(msg['From']),
+            'to':         decode_str(msg['To']),
+            'subject':    decode_str(msg['Subject']),
+            'date':       decode_str(msg['Date']),
+            'body':       get_body(msg),
             'message_id': msg.get('Message-ID', ''),
             'references': msg.get('References', ''),
         })
     mail.logout()
-    return emails
+    return result
 
 def build_msg(to, subject, body, selected_email=None):
     msg = MIMEMultipart('alternative')
-    msg['From'] = EMAIL
-    msg['To'] = to
-    if selected_email and not subject.startswith('Re:'):
-        subject = 'Re: ' + subject
-    msg['Subject'] = subject
-    msg['Date'] = email.utils.formatdate(localtime=True)
+    msg['From']    = EMAIL
+    msg['To']      = to
+    msg['Subject'] = ('Re: ' + subject) if selected_email and not subject.startswith('Re:') else subject
+    msg['Date']    = email.utils.formatdate(localtime=True)
     if selected_email and selected_email.get('message_id'):
         msg['In-Reply-To'] = selected_email['message_id']
         refs = selected_email.get('references', '')
@@ -171,413 +172,389 @@ def send_email(to, subject, body, selected_email=None):
 
 def ask_coda(context, instruction, mode='reply'):
     if mode == 'new':
-        prompt = f"""You are an email assistant. Write a professional email based on the instruction below.
-
-INSTRUCTION:
-{instruction}
-
-Write only the email body. No subject line. Sign off as Sebastian."""
-    else:
-        prompt = f"""You are an email assistant. Based on the email conversation below, write a professional reply.
-
-EMAIL CONTEXT:
-{context}
-
-USER INSTRUCTION:
-{instruction}
-
-Write only the email body. No subject line. Sign off as Sebastian."""
-    try:
-        # Strip any protocol prefix from OLLAMA_IP to avoid double http://
-        ollama_ip_clean = OLLAMA_IP.replace('http://', '').replace('https://', '')
-        response = requests.post(
-            f'http://{ollama_ip_clean}:11434/api/generate',
-            json={'model': MODEL, 'prompt': prompt, 'stream': False},
-            timeout=120
+        prompt = (
+            "You are an email assistant. Write a professional email based on the instruction below.\n\n"
+            f"INSTRUCTION:\n{instruction}\n\n"
+            "Write only the email body. No subject line. Sign off as Sebastian."
         )
-        return response.json()['response']
+    else:
+        prompt = (
+            "You are an email assistant. Based on the email conversation below, write a professional reply.\n\n"
+            f"EMAIL CONTEXT:\n{context}\n\n"
+            f"USER INSTRUCTION:\n{instruction}\n\n"
+            "Write only the email body. No subject line. Sign off as Sebastian."
+        )
+    try:
+        resp = requests.post(
+            f'http://{OLLAMA_IP}:11434/api/generate',
+            json={'model': MODEL, 'prompt': prompt, 'stream': False},
+            timeout=120,
+        )
+        return resp.json()['response']
     except Exception as e:
         return f"Error calling Coda: {e}"
 
 
+# ─────────────────────────────────────────────────────────────────
 class EmailApp:
+
+    TAB_KEYS = ('unread', 'read', 'drafts')
+
     def __init__(self, root):
         self.root = root
-        self.root.title("Coda Email Assistant")
+        self.root.title("Coda — Email Agent")
         self.root.resizable(True, True)
-        self.root.configure(bg='#1a1a2e')
 
         prefs = load_prefs()
-        self.root.geometry(prefs.get('geometry', '900x750'))
+        self.root.geometry(prefs.get('geometry', '920x760'))
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
-        # Cache — emails loaded once per tab, only refreshed on demand
-        self.cache = {'unread': None, 'read': None, 'drafts': None}
-        self.selected_email = None
-        self.current_tab = 'unread'
+        # Match preferences window style exactly
+        style = ttk.Style()
+        style.theme_use('clam')
 
-        self.build_ui()
+        self.cache    = {k: None for k in self.TAB_KEYS}
+        self.selected = {k: None for k in self.TAB_KEYS}
+        self.current_tab_key = 'unread'
+
+        self._build_ui()
         self.load_tab('unread')
         self.start_auto_refresh()
+
+    # ── lifecycle ──────────────────────────────────────────────────
 
     def on_close(self):
         save_prefs(self.root.geometry())
         self.root.withdraw()
 
     def start_auto_refresh(self):
-        def refresh_loop():
+        def _tick():
             self.refresh_current_tab()
-            self.root.after(AUTO_REFRESH_MINUTES * 60 * 1000, self.start_auto_refresh)
-        self.root.after(AUTO_REFRESH_MINUTES * 60 * 1000, refresh_loop)
+            self.root.after(AUTO_REFRESH_MINUTES * 60_000, _tick)
+        self.root.after(AUTO_REFRESH_MINUTES * 60_000, _tick)
 
     def refresh_current_tab(self):
-        if self.current_tab != 'new':
-            self.cache[self.current_tab] = None
-            self.load_tab(self.current_tab)
+        if self.current_tab_key in self.TAB_KEYS:
+            self.cache[self.current_tab_key] = None
+            self.load_tab(self.current_tab_key)
 
-    def build_ui(self):
-        tk.Label(self.root, text="Coda Email Assistant", font=('DejaVu Sans', 16, 'bold'),
-                bg='#1a1a2e', fg='#00d4ff').pack(pady=8)
+    # ── UI build ───────────────────────────────────────────────────
 
-        tab_frame = tk.Frame(self.root, bg='#1a1a2e')
-        tab_frame.pack(fill='x', padx=20, pady=4)
-        self.tab_buttons = {}
-        for label, key in [('📬 Unread', 'unread'), ('📖 Read', 'read'), ('📝 Drafts', 'drafts'), ('✉ New Email', 'new')]:
-            btn = tk.Button(tab_frame, text=label,
-                           command=lambda k=key: self.load_tab(k),
-                           bg='#0f0f1a', fg='#aaaaaa',
-                           font=('DejaVu Sans', 10), relief='flat', padx=15, pady=6)
-            btn.pack(side='left', padx=2)
-            self.tab_buttons[key] = btn
+    def _build_ui(self):
+        # Header
+        hdr = ttk.Frame(self.root, padding=(10, 8, 10, 6))
+        hdr.pack(fill='x')
+        ttk.Label(hdr, text="Coda — Email Agent", font=('', 13, 'bold')).pack(side='left')
+        self.status_label = ttk.Label(hdr, text="", font=('', 9), foreground='gray')
+        self.status_label.pack(side='right', padx=8)
+        ttk.Button(hdr, text="↺  Refresh", command=self.force_refresh, width=11).pack(side='right')
 
-        # Refresh button
-        self.refresh_btn = tk.Button(tab_frame, text="🔄", command=self.force_refresh,
-                                      bg='#0f0f1a', fg='#aaaaaa',
-                                      font=('DejaVu Sans', 10), relief='flat', padx=10, pady=6)
-        self.refresh_btn.pack(side='left', padx=2)
+        ttk.Separator(self.root).pack(fill='x')
 
-        # Status label
-        self.status_label = tk.Label(tab_frame, text="", font=('DejaVu Sans', 8),
-                                      bg='#1a1a2e', fg='#555555')
-        self.status_label.pack(side='right', padx=10)
+        # Notebook — same widget as preferences
+        self.nb = ttk.Notebook(self.root)
+        self.nb.pack(fill='both', expand=True, padx=8, pady=(6, 8))
 
-        # Global scrollable canvas
-        outer = tk.Frame(self.root, bg='#1a1a2e')
-        outer.pack(fill='both', expand=True, padx=(20,0), pady=6)
+        self._widgets = {}
+        for key, label in [('unread', '📬  Unread'),
+                            ('read',   '📖  Read'),
+                            ('drafts', '📝  Drafts')]:
+            frame = ttk.Frame(self.nb, padding=4)
+            self.nb.add(frame, text=f'  {label}  ')
+            self._widgets[key] = self._make_email_panel(frame, key)
 
-        global_scrollbar = tk.Scrollbar(outer, orient='vertical')
-        global_scrollbar.pack(side='right', fill='y')
+        new_frame = ttk.Frame(self.nb, padding=4)
+        self.nb.add(new_frame, text='  ✉  New Email  ')
+        self._make_new_email_panel(new_frame)
 
-        self.canvas = tk.Canvas(outer, bg='#1a1a2e', highlightthickness=0,
-                                yscrollcommand=global_scrollbar.set)
-        self.canvas.pack(side='left', fill='both', expand=True)
-        global_scrollbar.config(command=self.canvas.yview)
+        self.nb.bind('<<NotebookTabChanged>>', self._on_tab_change)
 
-        self.content_frame = tk.Frame(self.canvas, bg='#1a1a2e')
-        self.canvas_window = self.canvas.create_window((0, 0), window=self.content_frame, anchor='nw')
-
-        self.content_frame.bind('<Configure>', lambda e: self.canvas.configure(scrollregion=self.canvas.bbox('all')))
-        self.canvas.bind('<Configure>', lambda e: self.canvas.itemconfig(self.canvas_window, width=e.width))
-        self.canvas.bind_all('<Button-4>', lambda e: self.canvas.yview_scroll(-1, 'units'))
-        self.canvas.bind_all('<Button-5>', lambda e: self.canvas.yview_scroll(1, 'units'))
-
-        self.build_reply_view()
-        self.build_new_email_view()
-        self.show_reply_view()
-
-    def build_reply_view(self):
-        self.reply_view = tk.Frame(self.content_frame, bg='#1a1a2e')
-
-        paned = tk.PanedWindow(self.reply_view, orient='vertical', bg='#333355',
-                               sashwidth=6, sashrelief='raised')
+    def _make_email_panel(self, parent, key):
+        """Resizable split view: list / preview / instruction / buttons / reply."""
+        paned = tk.PanedWindow(parent, orient='vertical',
+                               sashwidth=5, sashrelief='raised')
         paned.pack(fill='both', expand=True)
 
         # Email list
-        top = tk.Frame(paned, bg='#1a1a2e')
-        paned.add(top, minsize=80)
-        tk.Label(top, text="Emails:", font=('DejaVu Sans', 9), bg='#1a1a2e', fg='#aaaaaa').pack(anchor='w')
-        list_scroll = tk.Scrollbar(top)
-        list_scroll.pack(side='right', fill='y')
-        self.listbox = tk.Listbox(top, bg='#0f0f1a', fg='white',
-                                   selectbackground='#00d4ff', selectforeground='black',
-                                   font=('DejaVu Sans', 9), relief='flat', bd=0,
-                                   yscrollcommand=list_scroll.set)
-        self.listbox.pack(fill='both', expand=True)
-        list_scroll.config(command=self.listbox.yview)
-        self.listbox.bind('<<ListboxSelect>>', self.on_select)
+        lf1 = ttk.LabelFrame(paned, text="Emails", padding=4)
+        paned.add(lf1, minsize=70)
+        vsb1 = ttk.Scrollbar(lf1)
+        vsb1.pack(side='right', fill='y')
+        lb = tk.Listbox(lf1, yscrollcommand=vsb1.set, selectmode='single',
+                        font=('', 9), relief='flat', borderwidth=1,
+                        activestyle='dotbox', exportselection=False)
+        lb.pack(fill='both', expand=True)
+        vsb1.config(command=lb.yview)
+        lb.bind('<<ListboxSelect>>', lambda e, k=key: self._on_select(e, k))
 
         # Email preview
-        mid = tk.Frame(paned, bg='#1a1a2e')
-        paned.add(mid, minsize=80)
-        tk.Label(mid, text="Email content:", font=('DejaVu Sans', 9), bg='#1a1a2e', fg='#aaaaaa').pack(anchor='w')
-        self.preview = scrolledtext.ScrolledText(mid, bg='#0f0f1a', fg='#cccccc',
-                                                  font=('DejaVu Sans', 9), relief='flat', bd=5, wrap='word')
-        self.preview.pack(fill='both', expand=True)
-
-        # Instruction panel
-        inst_frame = tk.Frame(paned, bg='#1a1a2e')
-        paned.add(inst_frame, minsize=80)
-        tk.Label(inst_frame, text="What do you want to say?", font=('DejaVu Sans', 9), bg='#1a1a2e', fg='#aaaaaa').pack(anchor='w')
-        self.instruction = scrolledtext.ScrolledText(inst_frame, bg='#0f0f1a', fg='white',
-                                                      font=('DejaVu Sans', 10), relief='flat', bd=5,
-                                                      insertbackground='white', wrap='word')
-        self.instruction.pack(fill='both', expand=True, pady=4)
-
-        # Buttons panel — fixed size
-        btn_panel = tk.Frame(paned, bg='#1a1a2e')
-        paned.add(btn_panel, minsize=50)
-        btn_frame = tk.Frame(btn_panel, bg='#1a1a2e')
-        btn_frame.pack(anchor='w', pady=4)
-        tk.Button(btn_frame, text="✍ Write Reply", command=self.write_reply,
-                 bg='#00d4ff', fg='black', font=('DejaVu Sans', 10, 'bold'),
-                 relief='flat', padx=15, pady=6).pack(side='left', padx=4)
-        tk.Button(btn_frame, text="💾 Save to Drafts", command=self.save_to_drafts,
-                 bg='#00ff99', fg='black', font=('DejaVu Sans', 10, 'bold'),
-                 relief='flat', padx=15, pady=6).pack(side='left', padx=4)
-        tk.Button(btn_frame, text="🚀 Send Now", command=self.send_now,
-                 bg='#ff6600', fg='white', font=('DejaVu Sans', 10, 'bold'),
-                 relief='flat', padx=15, pady=6).pack(side='left', padx=4)
-
-        # Coda's reply — resizable panel
-        reply_panel = tk.Frame(paned, bg='#1a1a2e')
-        paned.add(reply_panel, minsize=80)
-        tk.Label(reply_panel, text="Coda's reply:", font=('DejaVu Sans', 9), bg='#1a1a2e', fg='#aaaaaa').pack(anchor='w')
-        self.reply_area = scrolledtext.ScrolledText(reply_panel, bg='#0f0f1a', fg='white',
-                                                     font=('DejaVu Sans', 9), relief='flat', bd=5, wrap='word')
-        self.reply_area.pack(fill='both', expand=True)
-
-    def build_new_email_view(self):
-        self.new_view = tk.Frame(self.content_frame, bg='#1a1a2e')
-
-        # To + Subject — fixed, not resizable
-        fixed = tk.Frame(self.new_view, bg='#1a1a2e')
-        fixed.pack(fill='x', pady=(4,0))
-        tk.Label(fixed, text="To:", font=('DejaVu Sans', 10), bg='#1a1a2e', fg='#aaaaaa').pack(anchor='w', pady=(8,0))
-        self.new_to = tk.Entry(fixed, bg='#0f0f1a', fg='white', font=('DejaVu Sans', 10),
-                               relief='flat', bd=5, insertbackground='white')
-        self.new_to.pack(fill='x', pady=2)
-        tk.Label(fixed, text="Subject:", font=('DejaVu Sans', 10), bg='#1a1a2e', fg='#aaaaaa').pack(anchor='w', pady=(4,0))
-        self.new_subject = tk.Entry(fixed, bg='#0f0f1a', fg='white', font=('DejaVu Sans', 10),
-                                    relief='flat', bd=5, insertbackground='white')
-        self.new_subject.pack(fill='x', pady=2)
-
-        # Resizable panels below
-        paned = tk.PanedWindow(self.new_view, orient='vertical', bg='#333355',
-                               sashwidth=6, sashrelief='raised')
-        paned.pack(fill='both', expand=True)
+        lf2 = ttk.LabelFrame(paned, text="Email content", padding=4)
+        paned.add(lf2, minsize=70)
+        preview = scrolledtext.ScrolledText(lf2, font=('', 9), wrap='word',
+                                             relief='flat', borderwidth=1)
+        preview.pack(fill='both', expand=True)
 
         # Instruction
-        inst_frame = tk.Frame(paned, bg='#1a1a2e')
-        paned.add(inst_frame, minsize=80)
-        tk.Label(inst_frame, text="What do you want to say?", font=('DejaVu Sans', 10), bg='#1a1a2e', fg='#aaaaaa').pack(anchor='w', pady=(4,0))
-        self.new_instruction = scrolledtext.ScrolledText(inst_frame, bg='#0f0f1a', fg='white',
-                                                          font=('DejaVu Sans', 10), relief='flat', bd=5,
-                                                          insertbackground='white', wrap='word')
-        self.new_instruction.pack(fill='both', expand=True, pady=2)
+        lf3 = ttk.LabelFrame(paned, text="What do you want to say?", padding=4)
+        paned.add(lf3, minsize=70)
+        instruction = scrolledtext.ScrolledText(lf3, font=('', 10), wrap='word',
+                                                 relief='flat', borderwidth=1, height=4)
+        instruction.pack(fill='both', expand=True)
 
-        # Buttons panel — fixed
-        btn_panel = tk.Frame(paned, bg='#1a1a2e')
-        paned.add(btn_panel, minsize=50)
-        btn_frame = tk.Frame(btn_panel, bg='#1a1a2e')
-        btn_frame.pack(anchor='w', pady=8)
-        tk.Button(btn_frame, text="✍ Write Email", command=self.write_new,
-                 bg='#00d4ff', fg='black', font=('DejaVu Sans', 10, 'bold'),
-                 relief='flat', padx=15, pady=6).pack(side='left', padx=4)
-        tk.Button(btn_frame, text="💾 Save to Drafts", command=self.save_new_draft,
-                 bg='#00ff99', fg='black', font=('DejaVu Sans', 10, 'bold'),
-                 relief='flat', padx=15, pady=6).pack(side='left', padx=4)
-        tk.Button(btn_frame, text="🚀 Send Now", command=self.send_new,
-                 bg='#ff6600', fg='white', font=('DejaVu Sans', 10, 'bold'),
-                 relief='flat', padx=15, pady=6).pack(side='left', padx=4)
+        # Action buttons — fixed height panel
+        btn_frm = ttk.Frame(paned, padding=(4, 6))
+        paned.add(btn_frm, minsize=40)
+        ttk.Button(btn_frm, text="✍  Write Reply",
+                   command=lambda k=key: self._write_reply(k),
+                   width=16).pack(side='left', padx=4)
+        ttk.Button(btn_frm, text="💾  Save to Drafts",
+                   command=lambda k=key: self._save_draft_reply(k),
+                   width=18).pack(side='left', padx=4)
+        ttk.Button(btn_frm, text="🚀  Send Now",
+                   command=lambda k=key: self._send_reply(k),
+                   width=14).pack(side='left', padx=4)
 
-        # Coda's email — resizable
-        reply_panel = tk.Frame(paned, bg='#1a1a2e')
-        paned.add(reply_panel, minsize=80)
-        tk.Label(reply_panel, text="Coda's email:", font=('DejaVu Sans', 9), bg='#1a1a2e', fg='#aaaaaa').pack(anchor='w')
-        self.new_reply_area = scrolledtext.ScrolledText(reply_panel, bg='#0f0f1a', fg='white',
-                                                         font=('DejaVu Sans', 9), relief='flat', bd=5, wrap='word')
+        # Coda's reply
+        lf4 = ttk.LabelFrame(paned, text="Coda's reply", padding=4)
+        paned.add(lf4, minsize=70)
+        reply_area = scrolledtext.ScrolledText(lf4, font=('', 9), wrap='word',
+                                                relief='flat', borderwidth=1)
+        reply_area.pack(fill='both', expand=True)
+
+        return {'listbox': lb, 'preview': preview,
+                'instruction': instruction, 'reply': reply_area}
+
+    def _make_new_email_panel(self, parent):
+        # To / Subject — fixed, not resizable
+        fixed = ttk.Frame(parent, padding=(0, 4))
+        fixed.pack(fill='x')
+        ttk.Label(fixed, text="To:").grid(row=0, column=0, sticky='w', padx=(0, 8), pady=4)
+        self.new_to = ttk.Entry(fixed, font=('', 10))
+        self.new_to.grid(row=0, column=1, sticky='ew', pady=4)
+        ttk.Label(fixed, text="Subject:").grid(row=1, column=0, sticky='w', padx=(0, 8), pady=4)
+        self.new_subject = ttk.Entry(fixed, font=('', 10))
+        self.new_subject.grid(row=1, column=1, sticky='ew', pady=4)
+        fixed.columnconfigure(1, weight=1)
+
+        ttk.Separator(parent).pack(fill='x', pady=4)
+
+        # Resizable panels
+        paned = tk.PanedWindow(parent, orient='vertical',
+                               sashwidth=5, sashrelief='raised')
+        paned.pack(fill='both', expand=True)
+
+        lf1 = ttk.LabelFrame(paned, text="What do you want to say?", padding=4)
+        paned.add(lf1, minsize=70)
+        self.new_instruction = scrolledtext.ScrolledText(lf1, font=('', 10), wrap='word',
+                                                          relief='flat', borderwidth=1, height=4)
+        self.new_instruction.pack(fill='both', expand=True)
+
+        btn_frm = ttk.Frame(paned, padding=(4, 6))
+        paned.add(btn_frm, minsize=40)
+        ttk.Button(btn_frm, text="✍  Write Email",
+                   command=self._write_new, width=16).pack(side='left', padx=4)
+        ttk.Button(btn_frm, text="💾  Save to Drafts",
+                   command=self._save_new_draft, width=18).pack(side='left', padx=4)
+        ttk.Button(btn_frm, text="🚀  Send Now",
+                   command=self._send_new, width=14).pack(side='left', padx=4)
+
+        lf2 = ttk.LabelFrame(paned, text="Coda's email", padding=4)
+        paned.add(lf2, minsize=70)
+        self.new_reply_area = scrolledtext.ScrolledText(lf2, font=('', 9), wrap='word',
+                                                         relief='flat', borderwidth=1)
         self.new_reply_area.pack(fill='both', expand=True)
 
-    def show_reply_view(self):
-        self.new_view.pack_forget()
-        self.reply_view.pack(fill='both', expand=True)
+    # ── tab switching ──────────────────────────────────────────────
 
-    def show_new_view(self):
-        self.reply_view.pack_forget()
-        self.new_view.pack(fill='both', expand=True)
+    def _on_tab_change(self, event):
+        idx  = self.nb.index(self.nb.select())
+        keys = list(self.TAB_KEYS) + ['new']
+        self.current_tab_key = keys[idx]
+        if self.current_tab_key in self.TAB_KEYS:
+            self.load_tab(self.current_tab_key)
+
+    # ── loading ────────────────────────────────────────────────────
 
     def set_status(self, msg):
         self.status_label.config(text=msg)
-        self.root.update()
+        self.root.update_idletasks()
 
     def force_refresh(self):
-        if self.current_tab != 'new':
-            self.cache[self.current_tab] = None
-            self.load_tab(self.current_tab)
+        if self.current_tab_key in self.TAB_KEYS:
+            self.cache[self.current_tab_key] = None
+            self.load_tab(self.current_tab_key)
 
-    def load_tab(self, tab):
-        self.current_tab = tab
-        for key, btn in self.tab_buttons.items():
-            btn.configure(bg='#00d4ff' if key == tab else '#0f0f1a',
-                         fg='black' if key == tab else '#aaaaaa')
-        if tab == 'new':
-            self.show_new_view()
+    def load_tab(self, key):
+        if key not in self.TAB_KEYS:
+            return
+        if self.cache[key] is not None:
+            self._render_emails(key, self.cache[key])
+            self.set_status("Cached — click ↺ Refresh to reload")
             return
 
-        self.show_reply_view()
+        lb = self._widgets[key]['listbox']
+        lb.delete(0, 'end')
+        lb.insert('end', '  Loading…')
+        self.set_status("Loading…")
 
-        # Use cache if available
-        if self.cache[tab] is not None:
-            self.render_emails(self.cache[tab])
-            self.set_status(f"Cached — click 🔄 to refresh")
-            return
-
-        # Load in background thread
-        self.listbox.delete(0, 'end')
-        self.listbox.insert('end', '  Loading...')
-        self.set_status("Loading...")
-        self.root.update()
-
-        def do_fetch():
+        def _fetch():
             try:
-                if tab == 'unread':
+                if key == 'unread':
                     emails = fetch_emails('INBOX', 'UNSEEN')
-                elif tab == 'read':
+                elif key == 'read':
                     emails = fetch_emails('INBOX', 'SEEN')
-                elif tab == 'drafts':
+                else:
                     emails = fetch_drafts()
-                self.cache[tab] = emails
-                self.root.after(0, lambda: self.render_emails(emails))
+                self.cache[key] = emails
+                self.root.after(0, lambda: self._render_emails(key, emails))
                 self.root.after(0, lambda: self.set_status(f"{len(emails)} emails loaded"))
-            except Exception as e:
-                error_msg = str(e)
-                self.root.after(0, lambda: self.listbox.delete(0, 'end'))
-                self.root.after(0, lambda: self.listbox.insert('end', f'  Error: {error_msg}'))
+            except Exception as ex:
+                self.root.after(0, lambda: lb.delete(0, 'end'))
+                self.root.after(0, lambda: lb.insert('end', f'  Error: {ex}'))
                 self.root.after(0, lambda: self.set_status("Error loading"))
 
-        threading.Thread(target=do_fetch, daemon=True).start()
+        threading.Thread(target=_fetch, daemon=True).start()
 
-    def render_emails(self, emails):
-        self.listbox.delete(0, 'end')
+    def _render_emails(self, key, emails):
+        lb = self._widgets[key]['listbox']
+        lb.delete(0, 'end')
         if not emails:
-            self.listbox.insert('end', '  No emails here!')
+            lb.insert('end', '  No emails here!')
+            return
         for e in emails:
-            self.listbox.insert('end', f"  {e['from'][:45]}  |  {e['subject'][:55]}")
+            lb.insert('end', f"  {e['from'][:45]}  |  {e['subject'][:55]}")
 
-    def on_select(self, event):
-        sel = self.listbox.curselection()
-        emails = self.cache.get(self.current_tab) or []
-        if sel and sel[0] < len(emails):
-            self.selected_email = emails[sel[0]]
-            self.preview.delete('1.0', 'end')
-            self.preview.insert('end', f"From:    {self.selected_email['from']}\n")
-            self.preview.insert('end', f"To:      {self.selected_email['to']}\n")
-            self.preview.insert('end', f"Subject: {self.selected_email['subject']}\n")
-            self.preview.insert('end', f"Date:    {self.selected_email['date']}\n")
-            self.preview.insert('end', "─" * 60 + "\n")
-            self.preview.insert('end', self.selected_email['body'])
-
-    def write_reply(self):
-        if not self.selected_email:
-            messagebox.showwarning("No email selected", "Please select an email first!")
+    def _on_select(self, event, key):
+        lb     = self._widgets[key]['listbox']
+        emails = self.cache.get(key) or []
+        sel    = lb.curselection()
+        if not sel or sel[0] >= len(emails):
             return
-        instruction = self.instruction.get('1.0', 'end').strip()
-        if not instruction:
-            messagebox.showwarning("No instruction", "Please type what you want to say!")
-            return
-        self.reply_area.delete('1.0', 'end')
-        self.reply_area.insert('end', 'Coda is writing your reply...')
-        self.set_status("Coda is thinking...")
-        context = f"From: {self.selected_email['from']}\nSubject: {self.selected_email['subject']}\n\n{self.selected_email['body']}"
+        em = emails[sel[0]]
+        self.selected[key] = em
+        preview = self._widgets[key]['preview']
+        preview.delete('1.0', 'end')
+        preview.insert('end', f"From:    {em['from']}\n")
+        preview.insert('end', f"To:      {em['to']}\n")
+        preview.insert('end', f"Subject: {em['subject']}\n")
+        preview.insert('end', f"Date:    {em['date']}\n")
+        preview.insert('end', "─" * 60 + "\n")
+        preview.insert('end', em['body'])
 
-        def do_write():
-            reply = ask_coda(context, instruction)
-            self.root.after(0, lambda: self.reply_area.delete('1.0', 'end'))
-            self.root.after(0, lambda: self.reply_area.insert('end', reply))
+    # ── reply actions ──────────────────────────────────────────────
+
+    def _write_reply(self, key):
+        em = self.selected.get(key)
+        if not em:
+            messagebox.showwarning("No email selected", "Please select an email first.")
+            return
+        inst = self._widgets[key]['instruction'].get('1.0', 'end').strip()
+        if not inst:
+            messagebox.showwarning("No instruction", "Please type what you want to say.")
+            return
+        reply_area = self._widgets[key]['reply']
+        reply_area.delete('1.0', 'end')
+        reply_area.insert('end', 'Coda is writing your reply…')
+        self.set_status("Coda is thinking…")
+        ctx = f"From: {em['from']}\nSubject: {em['subject']}\n\n{em['body']}"
+
+        def _do():
+            text = ask_coda(ctx, inst)
+            self.root.after(0, lambda: reply_area.delete('1.0', 'end'))
+            self.root.after(0, lambda: reply_area.insert('end', text))
             self.root.after(0, lambda: self.set_status("Done!"))
 
-        threading.Thread(target=do_write, daemon=True).start()
+        threading.Thread(target=_do, daemon=True).start()
 
-    def save_to_drafts(self):
-        if not self.selected_email:
-            messagebox.showwarning("No email selected", "Please select an email first!")
+    def _save_draft_reply(self, key):
+        em = self.selected.get(key)
+        if not em:
+            messagebox.showwarning("No email selected", "Please select an email first.")
             return
-        reply = self.reply_area.get('1.0', 'end').strip()
-        if not reply or 'Coda is writing' in reply:
-            messagebox.showwarning("No reply", "Please write a reply first!")
+        body = self._widgets[key]['reply'].get('1.0', 'end').strip()
+        if not body or 'Coda is writing' in body:
+            messagebox.showwarning("No reply", "Please write a reply first.")
             return
         try:
-            save_draft(self.selected_email['from'], self.selected_email['subject'], reply, self.selected_email)
-            messagebox.showinfo("Saved!", "Reply saved to Gmail Drafts!")
+            save_draft(em['from'], em['subject'], body, em)
+            messagebox.showinfo("Saved!", "Reply saved to Gmail Drafts.")
         except Exception as ex:
             messagebox.showerror("Error", f"Could not save draft: {ex}")
 
-    def send_now(self):
-        if not self.selected_email:
-            messagebox.showwarning("No email selected", "Please select an email first!")
+    def _send_reply(self, key):
+        em = self.selected.get(key)
+        if not em:
+            messagebox.showwarning("No email selected", "Please select an email first.")
             return
-        reply = self.reply_area.get('1.0', 'end').strip()
-        if not reply or 'Coda is writing' in reply:
-            messagebox.showwarning("No reply", "Please write a reply first!")
+        body = self._widgets[key]['reply'].get('1.0', 'end').strip()
+        if not body or 'Coda is writing' in body:
+            messagebox.showwarning("No reply", "Please write a reply first.")
             return
-        if messagebox.askyesno("Send?", f"Send to:\n{self.selected_email['from']}\n\nAre you sure?"):
+        if messagebox.askyesno("Send?", f"Send to:\n{em['from']}\n\nAre you sure?"):
             try:
-                send_email(self.selected_email['from'], self.selected_email['subject'], reply, self.selected_email)
-                messagebox.showinfo("Sent!", "Email sent! 🚀")
+                send_email(em['from'], em['subject'], body, em)
+                messagebox.showinfo("Sent!", "Email sent!")
             except Exception as ex:
                 messagebox.showerror("Error", f"Could not send: {ex}")
 
-    def write_new(self):
-        instruction = self.new_instruction.get('1.0', 'end').strip()
-        if not instruction:
-            messagebox.showwarning("No instruction", "Please describe what you want to say!")
+    # ── new email actions ──────────────────────────────────────────
+
+    def _write_new(self):
+        inst = self.new_instruction.get('1.0', 'end').strip()
+        if not inst:
+            messagebox.showwarning("No instruction", "Please describe what you want to say.")
             return
         self.new_reply_area.delete('1.0', 'end')
-        self.new_reply_area.insert('end', 'Coda is writing your email...')
-        self.set_status("Coda is thinking...")
+        self.new_reply_area.insert('end', 'Coda is writing your email…')
+        self.set_status("Coda is thinking…")
 
-        def do_write_new():
-            reply = ask_coda('', instruction, mode='new')
+        def _do():
+            text = ask_coda('', inst, mode='new')
             self.root.after(0, lambda: self.new_reply_area.delete('1.0', 'end'))
-            self.root.after(0, lambda: self.new_reply_area.insert('end', reply))
+            self.root.after(0, lambda: self.new_reply_area.insert('end', text))
             self.root.after(0, lambda: self.set_status("Done!"))
 
-        threading.Thread(target=do_write_new, daemon=True).start()
+        threading.Thread(target=_do, daemon=True).start()
 
-    def save_new_draft(self):
-        to = self.new_to.get().strip()
+    def _save_new_draft(self):
+        to      = self.new_to.get().strip()
         subject = self.new_subject.get().strip()
-        body = self.new_reply_area.get('1.0', 'end').strip()
+        body    = self.new_reply_area.get('1.0', 'end').strip()
         if not to or not subject:
-            messagebox.showwarning("Missing fields", "Please fill in To and Subject!")
+            messagebox.showwarning("Missing fields", "Please fill in To and Subject.")
             return
         if not body or 'Coda is writing' in body:
-            messagebox.showwarning("No email", "Please write the email first!")
+            messagebox.showwarning("No email", "Please write the email first.")
             return
         try:
             save_draft(to, subject, body)
-            messagebox.showinfo("Saved!", "Email saved to Gmail Drafts!")
+            messagebox.showinfo("Saved!", "Email saved to Gmail Drafts.")
         except Exception as ex:
             messagebox.showerror("Error", f"Could not save draft: {ex}")
 
-    def send_new(self):
-        to = self.new_to.get().strip()
+    def _send_new(self):
+        to      = self.new_to.get().strip()
         subject = self.new_subject.get().strip()
-        body = self.new_reply_area.get('1.0', 'end').strip()
+        body    = self.new_reply_area.get('1.0', 'end').strip()
         if not to or not subject:
-            messagebox.showwarning("Missing fields", "Please fill in To and Subject!")
+            messagebox.showwarning("Missing fields", "Please fill in To and Subject.")
             return
         if not body or 'Coda is writing' in body:
-            messagebox.showwarning("No email", "Please write the email first!")
+            messagebox.showwarning("No email", "Please write the email first.")
             return
         if messagebox.askyesno("Send?", f"Send to:\n{to}\nSubject: {subject}\n\nAre you sure?"):
             try:
                 send_email(to, subject, body)
-                messagebox.showinfo("Sent!", "Email sent! 🚀")
+                messagebox.showinfo("Sent!", "Email sent!")
             except Exception as ex:
                 messagebox.showerror("Error", f"Could not send: {ex}")
 
-if __name__ == '__main__':
+
+def main():
     root = tk.Tk()
     app = EmailApp(root)
     root.mainloop()
+
+
+if __name__ == '__main__':
+    main()
