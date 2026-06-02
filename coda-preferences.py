@@ -1,279 +1,388 @@
 #!/usr/bin/python3
-
-import json
-import os
 import tkinter as tk
 from tkinter import ttk, messagebox
+import json
+import os
+import subprocess
 
 CONFIG_FILE = os.path.expanduser('~/.config/coda/config.json')
+EMAIL_CONF  = os.path.expanduser('~/.config/coda/email.conf')
 
-PROVIDERS = ['Ollama (local)', 'Claude API', 'OpenAI', 'Groq', 'Custom']
-EMAIL_PROVIDERS = ['Gmail', 'Outlook', 'Yahoo', 'Custom']
+PROVIDERS = ["Ollama (local)", "Gemini", "OpenAI", "Claude"]
 
-IMAP_PRESETS = {
-    'Gmail':   ('imap.gmail.com', 'smtp.gmail.com'),
-    'Outlook': ('outlook.office365.com', 'smtp.office365.com'),
-    'Yahoo':   ('imap.mail.yahoo.com', 'smtp.mail.yahoo.com'),
-    'Custom':  ('', ''),
+PROVIDER_MODELS = {
+    "Ollama (local)": ["(enter your model name)"],
+    "Gemini":         ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
+    "OpenAI":         ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
+    "Claude":         ["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5"],
 }
 
+PROVIDER_KEY_LABEL = {
+    "Ollama (local)": None,
+    "Gemini":         "Google AI Studio API Key",
+    "OpenAI":         "OpenAI API Key",
+    "Claude":         "Anthropic API Key",
+}
+
+PROVIDER_KEY_HELP = {
+    "Gemini": "Get a free key at aistudio.google.com",
+    "OpenAI": "Get a key at platform.openai.com",
+    "Claude": "Get a key at console.anthropic.com",
+}
+
+EMAIL_PROVIDERS = ["Gmail", "Outlook", "Yahoo", "Other"]
+EMAIL_IMAP = {
+    "Gmail":   ("imap.gmail.com",  "smtp.gmail.com"),
+    "Outlook": ("imap-mail.outlook.com", "smtp-mail.outlook.com"),
+    "Yahoo":   ("imap.mail.yahoo.com",   "smtp.mail.yahoo.com"),
+    "Other":   ("", ""),
+}
+
+# --- Privacy warning shown when cloud provider chosen for email ---
+EMAIL_PRIVACY_WARNING = (
+    "⚠️  Privacy Notice\n\n"
+    "You are selecting a cloud AI provider for the Email Agent.\n"
+    "Your email content will be sent to an external server to generate replies.\n\n"
+    "Make sure you are comfortable with this before continuing.\n\n"
+    "Alternatively, set the Email Agent to use Ollama (local) in the AI Provider tab\n"
+    "so your emails never leave your machine."
+)
+
 def load_config():
+    defaults = {
+        "provider": "Ollama (local)",
+        "ollama_ip": "",
+        "model": "",
+        "api_key": "",
+        "custom_url": "",
+        "email_provider": "Gmail",
+        "email": "",
+        "app_password": "",
+        "imap_server": "imap.gmail.com",
+        "smtp_server": "smtp.gmail.com",
+        "alias": "coda",
+        "refresh_minutes": 5,
+        "user_name": "",
+        "email_ai_provider": "Ollama (local)",
+        "email_ai_key": "",
+    }
     try:
         with open(CONFIG_FILE) as f:
-            return json.load(f)
-    except:
-        return {}
+            data = json.load(f)
+        defaults.update(data)
+    except Exception:
+        pass
+    return defaults
 
-def save_config(config):
+def save_config(cfg):
     os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
     with open(CONFIG_FILE, 'w') as f:
-        json.dump(config, f, indent=2)
+        json.dump(cfg, f, indent=2)
 
+def write_email_conf(cfg):
+    lines = [
+        f"EMAIL={cfg.get('email','')}",
+        f"APP_PASSWORD={cfg.get('app_password','')}",
+        f"IMAP_SERVER={cfg.get('imap_server','')}",
+        f"SMTP_SERVER={cfg.get('smtp_server','')}",
+        f"PROVIDER={cfg.get('email_provider','')}",
+        f"OLLAMA_IP={cfg.get('ollama_ip','')}",
+        f"MODEL={cfg.get('model','')}",
+    ]
+    os.makedirs(os.path.dirname(EMAIL_CONF), exist_ok=True)
+    with open(EMAIL_CONF, 'w') as f:
+        f.write('\n'.join(lines) + '\n')
+    os.chmod(EMAIL_CONF, 0o600)
+
+def update_bashrc_alias(alias, cfg):
+    bashrc = os.path.expanduser('~/.bashrc')
+    provider = cfg.get('provider', 'Ollama (local)')
+    model = cfg.get('model', '')
+    api_key = cfg.get('api_key', '')
+    ollama_ip = cfg.get('ollama_ip', '')
+
+    if provider == "Ollama (local)":
+        base_url = f"http://{ollama_ip}:11434" if ollama_ip else "http://localhost:11434"
+        new_alias = (
+            f"alias {alias}='source ~/aider-env/bin/activate && "
+            f"OLLAMA_API_BASE={base_url} aider --model ollama/{model}'"
+        )
+    elif provider == "Gemini":
+        default_model = model or 'gemini-1.5-pro'
+        new_alias = (
+            f"alias {alias}='source ~/aider-env/bin/activate && "
+            f"GEMINI_API_KEY={api_key} aider --model gemini/{default_model}'"
+        )
+    elif provider == "OpenAI":
+        default_model = model or 'gpt-4o'
+        new_alias = (
+            f"alias {alias}='source ~/aider-env/bin/activate && "
+            f"OPENAI_API_KEY={api_key} aider --model {default_model}'"
+        )
+    elif provider == "Claude":
+        default_model = model or 'claude-opus-4-5'
+        new_alias = (
+            f"alias {alias}='source ~/aider-env/bin/activate && "
+            f"ANTHROPIC_API_KEY={api_key} aider --model {default_model}'"
+        )
+    else:
+        return
+
+    try:
+        with open(bashrc, 'r') as f:
+            lines = f.readlines()
+        lines = [l for l in lines if not l.strip().startswith(f"alias {alias}=")]
+        lines.append(new_alias + '\n')
+        with open(bashrc, 'w') as f:
+            f.writelines(lines)
+    except Exception:
+        pass
+
+# ─────────────────────────────────────────────
 class PreferencesApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Coda Preferences")
-        self.root.geometry("520x580")
-        self.root.resizable(False, False)
-        self.root.configure(bg='#1a1a2e')
-        self.config = load_config()
-        self.build_ui()
-        # Defer load_values to after the UI is fully laid out
-        self.root.after(100, self.load_values)
+        self.root.title("Coda — Preferences")
+        self.root.resizable(True, True)
+        self.root.geometry("560x480")
+        self.cfg = load_config()
+        self._build_ui()
+        self._load_values()
 
-    def build_ui(self):
-        # Title
-        tk.Label(self.root, text="Coda Preferences", font=('DejaVu Sans', 16, 'bold'),
-                bg='#1a1a2e', fg='#00d4ff').pack(pady=12)
-
-        # Notebook tabs
+    def _build_ui(self):
         style = ttk.Style()
-        style.theme_use('default')
-        style.configure('TNotebook', background='#1a1a2e', borderwidth=0)
-        style.configure('TNotebook.Tab', background='#0f0f1a', foreground='#aaaaaa',
-                        padding=[15, 6], font=('DejaVu Sans', 10))
-        style.map('TNotebook.Tab', background=[('selected', '#00d4ff')],
-                  foreground=[('selected', 'black')])
-        style.configure('TFrame', background='#1a1a2e')
+        style.theme_use('clam')
 
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill='both', expand=True, padx=20, pady=4)
+        nb = ttk.Notebook(self.root)
+        nb.pack(fill='both', expand=True, padx=10, pady=10)
 
-        # Tabs
-        self.ai_tab = ttk.Frame(self.notebook)
-        self.email_tab = ttk.Frame(self.notebook)
-        self.general_tab = ttk.Frame(self.notebook)
+        self.tab_ai    = ttk.Frame(nb, padding=16)
+        self.tab_email = ttk.Frame(nb, padding=16)
+        self.tab_gen   = ttk.Frame(nb, padding=16)
 
-        self.notebook.add(self.ai_tab, text='🤖 AI Provider')
-        self.notebook.add(self.email_tab, text='📧 Email')
-        self.notebook.add(self.general_tab, text='⚙ General')
+        nb.add(self.tab_ai,    text='  AI Provider  ')
+        nb.add(self.tab_email, text='  Email  ')
+        nb.add(self.tab_gen,   text='  General  ')
 
-        self.build_ai_tab()
-        self.build_email_tab()
-        self.build_general_tab()
+        self._build_ai_tab()
+        self._build_email_tab()
+        self._build_general_tab()
 
         # Save button
-        tk.Button(self.root, text="💾 Save Preferences", command=self.save,
-                 bg='#00d4ff', fg='black', font=('DejaVu Sans', 11, 'bold'),
-                 relief='flat', padx=20, pady=8).pack(pady=12)
+        btn_frame = tk.Frame(self.root)
+        btn_frame.pack(fill='x', padx=10, pady=(0, 10))
+        ttk.Button(btn_frame, text='Save', command=self._save, width=14).pack(side='right')
+        ttk.Button(btn_frame, text='Cancel', command=self.root.destroy, width=10).pack(side='right', padx=6)
 
-    def label(self, parent, text):
-        tk.Label(parent, text=text, font=('DejaVu Sans', 10),
-                bg='#1a1a2e', fg='#aaaaaa').pack(anchor='w', padx=20, pady=(10,0))
+    # ── AI Provider tab ──────────────────────────────
+    def _build_ai_tab(self):
+        f = self.tab_ai
 
-    def entry(self, parent, show=None):
-        e = tk.Entry(parent, bg='#0f0f1a', fg='white', font=('DejaVu Sans', 10),
-                    relief='flat', bd=6, insertbackground='white', show=show or '')
-        e.pack(fill='x', padx=20, pady=2)
-        return e
+        ttk.Label(f, text="AI Provider", font=('', 11, 'bold')).grid(row=0, column=0, columnspan=2, sticky='w', pady=(0,10))
 
-    def dropdown(self, parent, options, callback=None):
-        var = tk.StringVar()
-        menu = ttk.Combobox(parent, textvariable=var, values=options,
-                           state='readonly', font=('DejaVu Sans', 10))
-        menu.pack(fill='x', padx=20, pady=2)
-        style = ttk.Style()
-        style.configure('TCombobox', fieldbackground='#0f0f1a', background='#0f0f1a',
-                        foreground='white', selectbackground='#00d4ff')
-        if callback:
-            var.trace('w', lambda *a: callback(var.get()))
-        return var, menu
+        ttk.Label(f, text="Provider:").grid(row=1, column=0, sticky='w', pady=4)
+        self.var_provider = tk.StringVar()
+        self.cb_provider = ttk.Combobox(f, textvariable=self.var_provider, values=PROVIDERS, state='readonly', width=28)
+        self.cb_provider.grid(row=1, column=1, sticky='ew', pady=4)
+        self.cb_provider.bind('<<ComboboxSelected>>', self._on_provider_change)
 
-    def build_ai_tab(self):
-        self.label(self.ai_tab, "Provider:")
-        self.provider_var, _ = self.dropdown(self.ai_tab, PROVIDERS, self.on_provider_change)
+        # Ollama-only: server IP
+        self.lbl_ip = ttk.Label(f, text="Ollama Server IP:")
+        self.lbl_ip.grid(row=2, column=0, sticky='w', pady=4)
+        self.var_ip = tk.StringVar()
+        self.ent_ip = ttk.Entry(f, textvariable=self.var_ip, width=30)
+        self.ent_ip.grid(row=2, column=1, sticky='ew', pady=4)
 
-        self.ollama_frame = tk.Frame(self.ai_tab, bg='#1a1a2e')
-        self.ollama_frame.pack(fill='x')
-        tk.Label(self.ollama_frame, text="Ollama Server IP:", font=('DejaVu Sans', 10),
-                bg='#1a1a2e', fg='#aaaaaa').pack(anchor='w', padx=20, pady=(10,0))
-        self.ollama_ip = tk.Entry(self.ollama_frame, bg='#0f0f1a', fg='white',
-                                   font=('DejaVu Sans', 10), relief='flat', bd=6,
-                                   insertbackground='white')
-        self.ollama_ip.pack(fill='x', padx=20, pady=2)
+        ttk.Label(f, text="Model:").grid(row=3, column=0, sticky='w', pady=4)
+        self.var_model = tk.StringVar()
+        self.cb_model = ttk.Combobox(f, textvariable=self.var_model, width=28)
+        self.cb_model.grid(row=3, column=1, sticky='ew', pady=4)
 
-        self.apikey_frame = tk.Frame(self.ai_tab, bg='#1a1a2e')
-        self.apikey_frame.pack(fill='x')
-        tk.Label(self.apikey_frame, text="API Key:", font=('DejaVu Sans', 10),
-                bg='#1a1a2e', fg='#aaaaaa').pack(anchor='w', padx=20, pady=(10,0))
-        self.api_key = tk.Entry(self.apikey_frame, bg='#0f0f1a', fg='white',
-                                 font=('DejaVu Sans', 10), relief='flat', bd=6,
-                                 insertbackground='white', show='•')
-        self.api_key.pack(fill='x', padx=20, pady=2)
+        # API key (cloud providers only)
+        self.lbl_key = ttk.Label(f, text="API Key:")
+        self.lbl_key.grid(row=4, column=0, sticky='w', pady=4)
+        self.var_key = tk.StringVar()
+        self.ent_key = ttk.Entry(f, textvariable=self.var_key, show='*', width=30)
+        self.ent_key.grid(row=4, column=1, sticky='ew', pady=4)
 
-        self.label(self.ai_tab, "Model:")
-        self.model = self.entry(self.ai_tab)
+        self.lbl_key_help = ttk.Label(f, text="", foreground='gray', font=('', 9))
+        self.lbl_key_help.grid(row=5, column=0, columnspan=2, sticky='w', pady=(0, 6))
 
-        self.custom_frame = tk.Frame(self.ai_tab, bg='#1a1a2e')
-        self.custom_frame.pack(fill='x')
-        tk.Label(self.custom_frame, text="Custom API Base URL:", font=('DejaVu Sans', 10),
-                bg='#1a1a2e', fg='#aaaaaa').pack(anchor='w', padx=20, pady=(10,0))
-        self.custom_url = tk.Entry(self.custom_frame, bg='#0f0f1a', fg='white',
-                                    font=('DejaVu Sans', 10), relief='flat', bd=6,
-                                    insertbackground='white')
-        self.custom_url.pack(fill='x', padx=20, pady=2)
+        f.columnconfigure(1, weight=1)
 
-        tk.Label(self.ai_tab, text="e.g. http://localhost:11434 for Ollama, or https://api.anthropic.com",
-                font=('DejaVu Sans', 8), bg='#1a1a2e', fg='#555555').pack(anchor='w', padx=20)
+    def _on_provider_change(self, event=None):
+        provider = self.var_provider.get()
+        models = PROVIDER_MODELS.get(provider, [])
+        self.cb_model['values'] = models
+        if models and self.var_model.get() not in models:
+            self.var_model.set(models[0])
 
-    def build_email_tab(self):
-        self.label(self.email_tab, "Email Provider:")
-        self.email_provider_var, _ = self.dropdown(self.email_tab, EMAIL_PROVIDERS, self.on_email_provider_change)
+        key_label = PROVIDER_KEY_LABEL.get(provider)
+        key_help  = PROVIDER_KEY_HELP.get(provider, "")
 
-        self.label(self.email_tab, "Email Address:")
-        self.email_address = self.entry(self.email_tab)
-
-        self.label(self.email_tab, "App Password:")
-        self.email_password = self.entry(self.email_tab, show='•')
-
-        tk.Label(self.email_tab,
-                text="For Gmail: myaccount.google.com → Security → App Passwords",
-                font=('DejaVu Sans', 8), bg='#1a1a2e', fg='#555555').pack(anchor='w', padx=20)
-
-        self.label(self.email_tab, "IMAP Server:")
-        self.imap_server = self.entry(self.email_tab)
-
-        self.label(self.email_tab, "SMTP Server:")
-        self.smtp_server = self.entry(self.email_tab)
-
-    def build_general_tab(self):
-        self.label(self.general_tab, "Terminal command name:")
-        self.alias_name = self.entry(self.general_tab)
-        tk.Label(self.general_tab, text="The command you type in terminal to launch Coda (e.g. coda, coda2)",
-                font=('DejaVu Sans', 8), bg='#1a1a2e', fg='#555555').pack(anchor='w', padx=20)
-
-        self.label(self.general_tab, "Email auto-refresh interval (minutes):")
-        self.refresh_interval = self.entry(self.general_tab)
-
-        self.label(self.general_tab, "Your name (for email sign-off):")
-        self.user_name = self.entry(self.general_tab)
-
-    def on_provider_change(self, value):
-        is_ollama = value == 'Ollama (local)'
-        is_custom = value == 'Custom'
-        needs_key = value in ['Claude API', 'OpenAI', 'Groq', 'Custom']
-
-        if is_ollama:
-            # Use pack after the provider dropdown label
-            self.ollama_frame.pack(fill='x', after=self.ai_tab.winfo_children()[0])
+        if provider == "Ollama (local)":
+            self.lbl_ip.grid()
+            self.ent_ip.grid()
+            self.lbl_key.grid_remove()
+            self.ent_key.grid_remove()
+            self.lbl_key_help.config(text="")
         else:
-            self.ollama_frame.pack_forget()
+            self.lbl_ip.grid_remove()
+            self.ent_ip.grid_remove()
+            self.lbl_key.config(text=key_label + ":")
+            self.lbl_key.grid()
+            self.ent_key.grid()
+            self.lbl_key_help.config(text=key_help)
 
-        if needs_key:
-            self.apikey_frame.pack(fill='x')
+    # ── Email tab ─────────────────────────────────────
+    def _build_email_tab(self):
+        f = self.tab_email
+
+        ttk.Label(f, text="Email Account", font=('', 11, 'bold')).grid(row=0, column=0, columnspan=2, sticky='w', pady=(0,10))
+
+        ttk.Label(f, text="Email Provider:").grid(row=1, column=0, sticky='w', pady=4)
+        self.var_email_prov = tk.StringVar()
+        self.cb_email_prov = ttk.Combobox(f, textvariable=self.var_email_prov, values=EMAIL_PROVIDERS, state='readonly', width=28)
+        self.cb_email_prov.grid(row=1, column=1, sticky='ew', pady=4)
+        self.cb_email_prov.bind('<<ComboboxSelected>>', self._on_email_provider_change)
+
+        ttk.Label(f, text="Email Address:").grid(row=2, column=0, sticky='w', pady=4)
+        self.var_email = tk.StringVar()
+        ttk.Entry(f, textvariable=self.var_email, width=30).grid(row=2, column=1, sticky='ew', pady=4)
+
+        ttk.Label(f, text="App Password:").grid(row=3, column=0, sticky='w', pady=4)
+        self.var_app_pw = tk.StringVar()
+        ttk.Entry(f, textvariable=self.var_app_pw, show='*', width=30).grid(row=3, column=1, sticky='ew', pady=4)
+
+        ttk.Label(f, text="IMAP Server:").grid(row=4, column=0, sticky='w', pady=4)
+        self.var_imap = tk.StringVar()
+        ttk.Entry(f, textvariable=self.var_imap, width=30).grid(row=4, column=1, sticky='ew', pady=4)
+
+        ttk.Label(f, text="SMTP Server:").grid(row=5, column=0, sticky='w', pady=4)
+        self.var_smtp = tk.StringVar()
+        ttk.Entry(f, textvariable=self.var_smtp, width=30).grid(row=5, column=1, sticky='ew', pady=4)
+
+        ttk.Separator(f).grid(row=6, column=0, columnspan=2, sticky='ew', pady=10)
+
+        ttk.Label(f, text="Email AI Provider", font=('', 11, 'bold')).grid(row=7, column=0, columnspan=2, sticky='w', pady=(0,6))
+        ttk.Label(f, text="Use which AI to write email replies:").grid(row=8, column=0, columnspan=2, sticky='w')
+
+        ttk.Label(f, text="Provider:").grid(row=9, column=0, sticky='w', pady=4)
+        self.var_email_ai = tk.StringVar()
+        self.cb_email_ai = ttk.Combobox(f, textvariable=self.var_email_ai, values=PROVIDERS, state='readonly', width=28)
+        self.cb_email_ai.grid(row=9, column=1, sticky='ew', pady=4)
+        self.cb_email_ai.bind('<<ComboboxSelected>>', self._on_email_ai_change)
+
+        self.lbl_email_ai_key = ttk.Label(f, text="API Key:")
+        self.lbl_email_ai_key.grid(row=10, column=0, sticky='w', pady=4)
+        self.var_email_ai_key = tk.StringVar()
+        self.ent_email_ai_key = ttk.Entry(f, textvariable=self.var_email_ai_key, show='*', width=30)
+        self.ent_email_ai_key.grid(row=10, column=1, sticky='ew', pady=4)
+
+        f.columnconfigure(1, weight=1)
+
+    def _on_email_provider_change(self, event=None):
+        prov = self.var_email_prov.get()
+        imap, smtp = EMAIL_IMAP.get(prov, ("", ""))
+        self.var_imap.set(imap)
+        self.var_smtp.set(smtp)
+
+    def _on_email_ai_change(self, event=None):
+        provider = self.var_email_ai.get()
+        if provider != "Ollama (local)":
+            messagebox.showwarning("Privacy Notice", EMAIL_PRIVACY_WARNING)
+        if provider == "Ollama (local)":
+            self.lbl_email_ai_key.grid_remove()
+            self.ent_email_ai_key.grid_remove()
         else:
-            self.apikey_frame.pack_forget()
+            self.lbl_email_ai_key.grid()
+            self.ent_email_ai_key.grid()
 
-        if is_custom:
-            self.custom_frame.pack(fill='x')
-        else:
-            self.custom_frame.pack_forget()
+    # ── General tab ───────────────────────────────────
+    def _build_general_tab(self):
+        f = self.tab_gen
 
-    def on_email_provider_change(self, value):
-        if value in IMAP_PRESETS and value != 'Custom':
-            imap, smtp = IMAP_PRESETS[value]
-            self.imap_server.delete(0, 'end')
-            self.imap_server.insert(0, imap)
-            self.smtp_server.delete(0, 'end')
-            self.smtp_server.insert(0, smtp)
+        ttk.Label(f, text="General Settings", font=('', 11, 'bold')).grid(row=0, column=0, columnspan=2, sticky='w', pady=(0,10))
 
-    def load_values(self):
-        c = self.config
+        ttk.Label(f, text="Your Name:").grid(row=1, column=0, sticky='w', pady=4)
+        self.var_name = tk.StringVar()
+        ttk.Entry(f, textvariable=self.var_name, width=30).grid(row=1, column=1, sticky='ew', pady=4)
 
-        # AI
-        provider = c.get('provider', 'Ollama (local)')
-        self.provider_var.set(provider)
-        self.on_provider_change(provider)
-        self.ollama_ip.insert(0, c.get('ollama_ip', ''))
-        self.api_key.insert(0, c.get('api_key', ''))
-        self.model.insert(0, c.get('model', ''))
-        self.custom_url.insert(0, c.get('custom_url', ''))
+        ttk.Label(f, text="Terminal alias:").grid(row=2, column=0, sticky='w', pady=4)
+        self.var_alias = tk.StringVar()
+        ttk.Entry(f, textvariable=self.var_alias, width=30).grid(row=2, column=1, sticky='ew', pady=4)
+        ttk.Label(f, text="Type this in terminal to launch Coda", foreground='gray', font=('', 9)).grid(
+            row=3, column=0, columnspan=2, sticky='w')
 
-        # Email
-        ep = c.get('email_provider', 'Gmail')
-        self.email_provider_var.set(ep)
-        self.email_address.insert(0, c.get('email', ''))
-        self.email_password.insert(0, c.get('app_password', ''))
-        self.imap_server.insert(0, c.get('imap_server', 'imap.gmail.com'))
-        self.smtp_server.insert(0, c.get('smtp_server', 'smtp.gmail.com'))
+        ttk.Label(f, text="Email auto-refresh (minutes):").grid(row=4, column=0, sticky='w', pady=10)
+        self.var_refresh = tk.StringVar()
+        ttk.Entry(f, textvariable=self.var_refresh, width=8).grid(row=4, column=1, sticky='w', pady=10)
 
-        # General
-        self.alias_name.insert(0, c.get('alias', 'coda'))
-        self.refresh_interval.insert(0, str(c.get('refresh_minutes', 5)))
-        self.user_name.insert(0, c.get('user_name', ''))
+        f.columnconfigure(1, weight=1)
 
-    def save(self):
-        config = {
-            'provider': self.provider_var.get(),
-            'ollama_ip': self.ollama_ip.get().strip(),
-            'api_key': self.api_key.get().strip(),
-            'model': self.model.get().strip(),
-            'custom_url': self.custom_url.get().strip(),
-            'email_provider': self.email_provider_var.get(),
-            'email': self.email_address.get().strip(),
-            'app_password': self.email_password.get().strip(),
-            'imap_server': self.imap_server.get().strip(),
-            'smtp_server': self.smtp_server.get().strip(),
-            'alias': self.alias_name.get().strip(),
-            'refresh_minutes': int(self.refresh_interval.get().strip() or 5),
-            'user_name': self.user_name.get().strip(),
-        }
-        save_config(config)
+    # ── Load values ───────────────────────────────────
+    def _load_values(self):
+        c = self.cfg
+        self.var_provider.set(c.get('provider', 'Ollama (local)'))
+        self.var_ip.set(c.get('ollama_ip', ''))
+        self.var_model.set(c.get('model', ''))
+        self.var_key.set(c.get('api_key', ''))
+        self._on_provider_change()
 
-        # Update ~/.bashrc alias
-        alias_line = f"alias {config['alias']}='source ~/aider-env/bin/activate && "
-        if config['provider'] == 'Ollama (local)':
-            alias_line += f"OLLAMA_API_BASE=http://{config['ollama_ip']}:11434 aider --model ollama/{config['model']}'"
-        elif config['provider'] == 'Claude API':
-            alias_line += f"ANTHROPIC_API_KEY={config['api_key']} aider --model {config['model']}'"
-        elif config['provider'] == 'OpenAI':
-            alias_line += f"OPENAI_API_KEY={config['api_key']} aider --model {config['model']}'"
-        elif config['provider'] == 'Groq':
-            alias_line += f"GROQ_API_KEY={config['api_key']} aider --model groq/{config['model']}'"
-        else:
-            alias_line += f"OPENAI_API_BASE={config['custom_url']} aider --model {config['model']}'"
+        self.var_email_prov.set(c.get('email_provider', 'Gmail'))
+        self.var_email.set(c.get('email', ''))
+        self.var_app_pw.set(c.get('app_password', ''))
+        self.var_imap.set(c.get('imap_server', 'imap.gmail.com'))
+        self.var_smtp.set(c.get('smtp_server', 'smtp.gmail.com'))
 
-        bashrc = os.path.expanduser('~/.bashrc')
-        with open(bashrc) as f:
-            lines = f.readlines()
-        lines = [l for l in lines if not l.strip().startswith('alias coda')]
-        lines.append(f"\n# Coda AI assistant\n{alias_line}\n")
-        with open(bashrc, 'w') as f:
-            f.writelines(lines)
+        email_ai = c.get('email_ai_provider', 'Ollama (local)')
+        self.var_email_ai.set(email_ai)
+        self.var_email_ai_key.set(c.get('email_ai_key', ''))
+        if email_ai == "Ollama (local)":
+            self.lbl_email_ai_key.grid_remove()
+            self.ent_email_ai_key.grid_remove()
 
-        # Update email config
-        email_conf = os.path.expanduser('~/.config/coda/email.conf')
-        with open(email_conf, 'w') as f:
-            f.write(f"EMAIL={config['email']}\n")
-            f.write(f"APP_PASSWORD={config['app_password']}\n")
-            f.write(f"IMAP_SERVER={config['imap_server']}\n")
-            f.write(f"SMTP_SERVER={config['smtp_server']}\n")
-            f.write(f"OLLAMA_IP={config['ollama_ip']}\n")
-            f.write(f"MODEL={config['model']}\n")
+        self.var_name.set(c.get('user_name', ''))
+        self.var_alias.set(c.get('alias', 'coda'))
+        self.var_refresh.set(str(c.get('refresh_minutes', 5)))
 
-        messagebox.showinfo("Saved!", "Preferences saved!\nRestart Coda for all changes to take effect.")
+    # ── Save ──────────────────────────────────────────
+    def _save(self):
+        try:
+            refresh = int(self.var_refresh.get())
+        except ValueError:
+            messagebox.showerror("Error", "Refresh interval must be a number.")
+            return
 
-if __name__ == '__main__':
+        self.cfg.update({
+            "provider":          self.var_provider.get(),
+            "ollama_ip":         self.var_ip.get().strip(),
+            "model":             self.var_model.get().strip(),
+            "api_key":           self.var_key.get().strip(),
+            "email_provider":    self.var_email_prov.get(),
+            "email":             self.var_email.get().strip(),
+            "app_password":      self.var_app_pw.get().strip(),
+            "imap_server":       self.var_imap.get().strip(),
+            "smtp_server":       self.var_smtp.get().strip(),
+            "email_ai_provider": self.var_email_ai.get(),
+            "email_ai_key":      self.var_email_ai_key.get().strip(),
+            "user_name":         self.var_name.get().strip(),
+            "alias":             self.var_alias.get().strip(),
+            "refresh_minutes":   refresh,
+        })
+
+        save_config(self.cfg)
+        write_email_conf(self.cfg)
+        update_bashrc_alias(self.cfg['alias'], self.cfg)
+
+        messagebox.showinfo("Saved", "Preferences saved!\n\nRestart Coda from the taskbar to apply provider changes.")
+        self.root.destroy()
+
+
+def main():
     root = tk.Tk()
     app = PreferencesApp(root)
     root.mainloop()
+
+if __name__ == '__main__':
+    main()
