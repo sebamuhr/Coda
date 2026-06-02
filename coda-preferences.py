@@ -254,30 +254,35 @@ class PreferencesApp:
         self.var_app_pw = tk.StringVar()
         ttk.Entry(f, textvariable=self.var_app_pw, show='*', width=30).grid(row=3, column=1, sticky='ew', pady=4)
 
-        ttk.Label(f, text="IMAP Server:").grid(row=4, column=0, sticky='w', pady=4)
+        ttk.Label(f, text="⚠ Not your Gmail password — create one at:\n"
+                          "myaccount.google.com → Security → 2-Step Verification → App Passwords",
+                  foreground='gray', font=('', 8)).grid(
+                      row=4, column=0, columnspan=2, sticky='w', pady=(0, 6))
+
+        ttk.Label(f, text="IMAP Server:").grid(row=5, column=0, sticky='w', pady=4)
         self.var_imap = tk.StringVar()
-        ttk.Entry(f, textvariable=self.var_imap, width=30).grid(row=4, column=1, sticky='ew', pady=4)
+        ttk.Entry(f, textvariable=self.var_imap, width=30).grid(row=5, column=1, sticky='ew', pady=4)
 
-        ttk.Label(f, text="SMTP Server:").grid(row=5, column=0, sticky='w', pady=4)
+        ttk.Label(f, text="SMTP Server:").grid(row=6, column=0, sticky='w', pady=4)
         self.var_smtp = tk.StringVar()
-        ttk.Entry(f, textvariable=self.var_smtp, width=30).grid(row=5, column=1, sticky='ew', pady=4)
+        ttk.Entry(f, textvariable=self.var_smtp, width=30).grid(row=6, column=1, sticky='ew', pady=4)
 
-        ttk.Separator(f).grid(row=6, column=0, columnspan=2, sticky='ew', pady=10)
+        ttk.Separator(f).grid(row=7, column=0, columnspan=2, sticky='ew', pady=10)
 
-        ttk.Label(f, text="Email AI Provider", font=('', 11, 'bold')).grid(row=7, column=0, columnspan=2, sticky='w', pady=(0,6))
-        ttk.Label(f, text="Use which AI to write email replies:").grid(row=8, column=0, columnspan=2, sticky='w')
+        ttk.Label(f, text="Email AI Provider", font=('', 11, 'bold')).grid(row=8, column=0, columnspan=2, sticky='w', pady=(0,6))
+        ttk.Label(f, text="Use which AI to write email replies:").grid(row=9, column=0, columnspan=2, sticky='w')
 
-        ttk.Label(f, text="Provider:").grid(row=9, column=0, sticky='w', pady=4)
+        ttk.Label(f, text="Provider:").grid(row=10, column=0, sticky='w', pady=4)
         self.var_email_ai = tk.StringVar()
         self.cb_email_ai = ttk.Combobox(f, textvariable=self.var_email_ai, values=PROVIDERS, state='readonly', width=28)
-        self.cb_email_ai.grid(row=9, column=1, sticky='ew', pady=4)
+        self.cb_email_ai.grid(row=10, column=1, sticky='ew', pady=4)
         self.cb_email_ai.bind('<<ComboboxSelected>>', self._on_email_ai_change)
 
         self.lbl_email_ai_key = ttk.Label(f, text="API Key:")
-        self.lbl_email_ai_key.grid(row=10, column=0, sticky='w', pady=4)
+        self.lbl_email_ai_key.grid(row=11, column=0, sticky='w', pady=4)
         self.var_email_ai_key = tk.StringVar()
         self.ent_email_ai_key = ttk.Entry(f, textvariable=self.var_email_ai_key, show='*', width=30)
-        self.ent_email_ai_key.grid(row=10, column=1, sticky='ew', pady=4)
+        self.ent_email_ai_key.grid(row=11, column=1, sticky='ew', pady=4)
 
         f.columnconfigure(1, weight=1)
 
