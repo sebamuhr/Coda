@@ -301,9 +301,12 @@ class EmailApp:
                                                  relief='flat', borderwidth=1, height=4)
         instruction.pack(fill='both', expand=True)
 
-        # Action buttons — fixed height panel
-        btn_frm = ttk.Frame(paned, padding=(4, 6))
-        paned.add(btn_frm, minsize=40)
+        # Bottom container — one pane holding both buttons (fixed) and reply area (resizable)
+        bottom = ttk.Frame(paned)
+        paned.add(bottom, minsize=110)
+
+        btn_frm = ttk.Frame(bottom, padding=(4, 6))
+        btn_frm.pack(fill='x')
         ttk.Button(btn_frm, text="✍  Write Reply",
                    command=lambda k=key: self._write_reply(k),
                    width=16).pack(side='left', padx=4)
@@ -314,9 +317,8 @@ class EmailApp:
                    command=lambda k=key: self._send_reply(k),
                    width=14).pack(side='left', padx=4)
 
-        # Coda's reply
-        lf4 = ttk.LabelFrame(paned, text="Coda's reply", padding=4)
-        paned.add(lf4, minsize=70)
+        lf4 = ttk.LabelFrame(bottom, text="Coda's reply", padding=4)
+        lf4.pack(fill='both', expand=True)
         reply_area = scrolledtext.ScrolledText(lf4, font=('', 9), wrap='word',
                                                 relief='flat', borderwidth=1)
         reply_area.pack(fill='both', expand=True)
@@ -349,8 +351,12 @@ class EmailApp:
                                                           relief='flat', borderwidth=1, height=4)
         self.new_instruction.pack(fill='both', expand=True)
 
-        btn_frm = ttk.Frame(paned, padding=(4, 6))
-        paned.add(btn_frm, minsize=40)
+        # Bottom container — buttons fixed, reply area resizable
+        bottom = ttk.Frame(paned)
+        paned.add(bottom, minsize=110)
+
+        btn_frm = ttk.Frame(bottom, padding=(4, 6))
+        btn_frm.pack(fill='x')
         ttk.Button(btn_frm, text="✍  Write Email",
                    command=self._write_new, width=16).pack(side='left', padx=4)
         ttk.Button(btn_frm, text="💾  Save to Drafts",
@@ -358,8 +364,8 @@ class EmailApp:
         ttk.Button(btn_frm, text="🚀  Send Now",
                    command=self._send_new, width=14).pack(side='left', padx=4)
 
-        lf2 = ttk.LabelFrame(paned, text="Coda's email", padding=4)
-        paned.add(lf2, minsize=70)
+        lf2 = ttk.LabelFrame(bottom, text="Coda's email", padding=4)
+        lf2.pack(fill='both', expand=True)
         self.new_reply_area = scrolledtext.ScrolledText(lf2, font=('', 9), wrap='word',
                                                          relief='flat', borderwidth=1)
         self.new_reply_area.pack(fill='both', expand=True)
