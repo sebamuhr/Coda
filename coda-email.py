@@ -186,8 +186,9 @@ def ask_coda(context, instruction, mode='reply'):
         )
     try:
         cfg = _cfg()
+        ollama_ip = cfg.get('OLLAMA_IP', 'localhost').replace('https://', '').replace('http://', '').strip('/')
         resp = requests.post(
-            f"http://{cfg.get('OLLAMA_IP', 'localhost')}:11434/api/generate",
+            f"http://{ollama_ip}:11434/api/generate",
             json={'model': cfg.get('MODEL', 'coda:2.0'), 'prompt': prompt, 'stream': False},
             timeout=120,
         )
