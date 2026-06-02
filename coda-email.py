@@ -103,7 +103,7 @@ def fetch_emails(folder='INBOX', criteria='UNSEEN'):
     ids = data[0].split()[-15:]
     result = []
     for eid in reversed(ids):
-        _, msg_data = mail.fetch(eid, '(RFC822)')
+        _, msg_data = mail.fetch(eid, '(BODY.PEEK[])')
         msg = email.message_from_bytes(msg_data[0][1])
         result.append({
             'id': eid,
@@ -127,7 +127,7 @@ def fetch_drafts():
     ids = data[0].split()[-15:]
     result = []
     for eid in reversed(ids):
-        _, msg_data = mail.fetch(eid, '(RFC822)')
+        _, msg_data = mail.fetch(eid, '(BODY.PEEK[])')
         msg = email.message_from_bytes(msg_data[0][1])
         result.append({
             'id': eid,
