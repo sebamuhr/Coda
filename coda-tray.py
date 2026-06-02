@@ -5,6 +5,7 @@ import sys
 import json
 import glob
 import time
+import signal
 import threading
 import pystray
 from pystray import MenuItem as item, Menu
@@ -194,9 +195,9 @@ def launch_email(icon=None, query=None):
     def _launch():
         global _email_proc
         if _email_proc is not None and _email_proc.poll() is None:
+            # Already running but hidden — tell it to show itself
             try:
-                subprocess.run(['wmctrl', '-a', 'Coda — Email Agent'],
-                               capture_output=True, timeout=2)
+                os.kill(_email_proc.pid, signal.SIGUSR1)
             except Exception:
                 pass
             return
@@ -262,6 +263,13 @@ def build_menu():
 
 # --- Quit ---
 def quit_app(icon, query):
+    # Close any windows that are hiding in the background
+    for proc in [_email_proc, _prefs_proc]:
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
     for f in [RUNNING_FILE, LOCK_FILE]:
         try:
             os.remove(f)

@@ -8,6 +8,7 @@ import requests
 import re
 import json
 import os
+import signal
 import threading
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
@@ -209,6 +210,10 @@ class EmailApp:
         self.root.geometry(prefs.get('geometry', '920x760'))
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
+        # SIGUSR1 from the tray means "show yourself"
+        signal.signal(signal.SIGUSR1,
+                      lambda s, f: self.root.after(0, self._show_window))
+
         # Match preferences window style exactly
         style = ttk.Style()
         style.theme_use('clam')
@@ -225,7 +230,12 @@ class EmailApp:
 
     def on_close(self):
         save_prefs(self.root.geometry())
-        self.root.withdraw()
+        self.root.withdraw()   # hide, stay alive in background
+
+    def _show_window(self):
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_force()
 
     def start_auto_refresh(self):
         def _tick():
