@@ -251,8 +251,36 @@ class EmailApp:
 
         ttk.Separator(self.root).pack(fill='x')
 
+        # Global scrollable area
+        outer = ttk.Frame(self.root)
+        outer.pack(fill='both', expand=True)
+
+        self._global_vsb = ttk.Scrollbar(outer, orient='vertical')
+        self._global_vsb.pack(side='right', fill='y')
+
+        self._canvas = tk.Canvas(outer, yscrollcommand=self._global_vsb.set,
+                                  highlightthickness=0)
+        self._canvas.pack(side='left', fill='both', expand=True)
+        self._global_vsb.config(command=self._canvas.yview)
+
+        inner = ttk.Frame(self._canvas)
+        self._canvas_win = self._canvas.create_window((0, 0), window=inner, anchor='nw')
+
+        def _on_canvas_resize(e):
+            self._canvas.itemconfig(self._canvas_win,
+                                    width=e.width,
+                                    height=max(e.height, inner.winfo_reqheight()))
+            self._canvas.configure(scrollregion=self._canvas.bbox('all'))
+
+        self._canvas.bind('<Configure>', _on_canvas_resize)
+        inner.bind('<Configure>', lambda e: self._canvas.configure(
+            scrollregion=self._canvas.bbox('all')))
+
+        self._canvas.bind_all('<Button-4>', lambda e: self._canvas.yview_scroll(-1, 'units'))
+        self._canvas.bind_all('<Button-5>', lambda e: self._canvas.yview_scroll(1, 'units'))
+
         # Notebook — same widget as preferences
-        self.nb = ttk.Notebook(self.root)
+        self.nb = ttk.Notebook(inner)
         self.nb.pack(fill='both', expand=True, padx=8, pady=(6, 8))
 
         self._widgets = {}
