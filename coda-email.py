@@ -98,7 +98,7 @@ def fetch_emails(folder='INBOX', criteria='UNSEEN'):
     cfg = _cfg()
     mail = imaplib.IMAP4_SSL(cfg.get('IMAP_SERVER', 'imap.gmail.com'))
     mail.login(cfg.get('EMAIL', ''), cfg.get('APP_PASSWORD', ''))
-    mail.select(folder)
+    mail.select(folder, readonly=True)
     _, data = mail.search(None, criteria)
     ids = data[0].split()[-15:]
     result = []
@@ -122,7 +122,7 @@ def fetch_drafts():
     cfg = _cfg()
     mail = imaplib.IMAP4_SSL(cfg.get('IMAP_SERVER', 'imap.gmail.com'))
     mail.login(cfg.get('EMAIL', ''), cfg.get('APP_PASSWORD', ''))
-    mail.select('"[Gmail]/Drafts"')
+    mail.select('"[Gmail]/Drafts"', readonly=True)
     _, data = mail.search(None, 'ALL')
     ids = data[0].split()[-15:]
     result = []
