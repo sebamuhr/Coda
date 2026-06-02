@@ -1,261 +1,407 @@
 #!/bin/bash
-
-# ============================================================
+# ═══════════════════════════════════════════════════════════════
 #  Coda Installer
-#  Local AI coding assistant for Linux
 #  https://github.com/sebamuhr/Coda
-# ============================================================
+# ═══════════════════════════════════════════════════════════════
 
 set -e
 
-BOLD=$(tput bold)
-RESET=$(tput sgr0)
+# Allow interactive prompts even when piped (curl | bash)
+exec < /dev/tty
+
+REPO="https://raw.githubusercontent.com/sebamuhr/Coda/main"
+CODA_DIR="$HOME/Coda"
+CONFIG_DIR="$HOME/.config/coda"
+
+BOLD=$(tput bold 2>/dev/null || echo "")
+RESET=$(tput sgr0 2>/dev/null || echo "")
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
 RED='\033[0;31m'
 NC='\033[0m'
 
+step() { echo ""; echo -e "${BLUE}${BOLD}[$1/$STEPS]${RESET} $2"; }
+ok()   { echo -e "    ${GREEN}✓  $1${NC}"; }
+warn() { echo -e "    ${YELLOW}⚠  $1${NC}"; }
+ask()  { echo -e "${YELLOW}$1${NC}"; }
+hr()   { echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; }
+
+STEPS=7
+
+# ── Banner ────────────────────────────────────────────────────
+clear
 echo ""
 echo -e "${BLUE}${BOLD}"
-echo "   ██████╗ ██████╗ ██████╗  █████╗ "
-echo "  ██╔════╝██╔═══██╗██╔══██╗██╔══██╗"
-echo "  ██║     ██║   ██║██║  ██║███████║"
-echo "  ██║     ██║   ██║██║  ██║██╔══██║"
-echo "  ╚██████╗╚██████╔╝██████╔╝██║  ██║"
-echo "   ╚═════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝"
+cat << 'BANNER'
+   ██████╗ ██████╗ ██████╗  █████╗
+  ██╔════╝██╔═══██╗██╔══██╗██╔══██╗
+  ██║     ██║   ██║██║  ██║███████║
+  ██║     ██║   ██║██║  ██║██╔══██║
+  ╚██████╗╚██████╔╝██████╔╝██║  ██║
+   ╚═════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝
+BANNER
 echo -e "${RESET}"
-echo "  Your local AI coding assistant"
+echo "  Your local AI assistant — code, email, no subscription"
 echo "  https://github.com/sebamuhr/Coda"
 echo ""
-echo "============================================================"
+hr
 echo ""
 
-# --- Ask for Ollama IP ---
-echo -e "${YELLOW}Where is your Ollama server running?${NC}"
-echo "  Examples: localhost  /  192.168.1.100  /  192.168.2.200"
+# ── AI Provider ───────────────────────────────────────────────
+ask "Which AI provider do you want to use?"
 echo ""
-read -p "  Ollama IP or hostname: " OLLAMA_IP
-
-if [ -z "$OLLAMA_IP" ]; then
-    OLLAMA_IP="localhost"
-fi
-
-# --- Test Ollama connection ---
+echo "  1) Ollama  (local)  — your own model, 100% private, no API key needed"
+echo "  2) Gemini           — Google AI, free tier at aistudio.google.com"
+echo "  3) Claude API       — Anthropic, best for complex code (paid)"
+echo "  4) OpenAI           — GPT-4o and others (paid)"
 echo ""
-echo -e "  Testing connection to Ollama at ${BLUE}http://${OLLAMA_IP}:11434${NC}..."
-if curl -s --connect-timeout 5 "http://${OLLAMA_IP}:11434" | grep -q "Ollama"; then
-    echo -e "  ${GREEN}✓ Ollama is reachable!${NC}"
-else
-    echo -e "  ${RED}✗ Could not reach Ollama at http://${OLLAMA_IP}:11434${NC}"
-    echo "    Make sure Ollama is running and accessible."
-    echo "    You can still continue but Coda won't work until Ollama is reachable."
-    read -p "  Continue anyway? (y/n): " CONTINUE
-    if [ "$CONTINUE" != "y" ]; then
-        exit 1
+read -p "  Choice [1]: " PROVIDER_CHOICE
+PROVIDER_CHOICE=${PROVIDER_CHOICE:-1}
+
+OLLAMA_IP=""
+MODEL=""
+API_KEY=""
+
+case "$PROVIDER_CHOICE" in
+  1)
+    PROVIDER="Ollama (local)"
+    echo ""
+    ask "Where is Ollama running?"
+    echo "  Use 'localhost' if it's on this machine, or enter the server IP."
+    echo ""
+    read -p "  Ollama IP [localhost]: " OLLAMA_IP
+    OLLAMA_IP=${OLLAMA_IP:-localhost}
+    # Strip any http:// prefix the user might type
+    OLLAMA_IP="${OLLAMA_IP#http://}"
+    OLLAMA_IP="${OLLAMA_IP%%:*}"
+
+    echo ""
+    echo -e "  Testing connection to ${CYAN}http://${OLLAMA_IP}:11434${NC}..."
+    if curl -s --connect-timeout 5 "http://${OLLAMA_IP}:11434" 2>/dev/null | grep -q "Ollama"; then
+        ok "Connected!"
+    else
+        warn "Could not reach Ollama — check it is running and accessible."
+        read -p "  Continue anyway? [y/N]: " CONT
+        [ "${CONT,,}" = "y" ] || exit 1
     fi
-fi
 
-# --- Ask for model name ---
-echo ""
-echo -e "${YELLOW}What model do you want to use?${NC}"
-echo "  Examples: qwen2.5-coder:32b  /  qwen3.6:27b  /  coda:2.0"
-echo ""
-
-# Try to list available models
-if curl -s --connect-timeout 5 "http://${OLLAMA_IP}:11434/api/tags" > /tmp/ollama_models.json 2>/dev/null; then
-    echo "  Available models on your server:"
-    python3 -c "
-import json
-with open('/tmp/ollama_models.json') as f:
-    data = json.load(f)
-for m in data.get('models', []):
-    print('    -', m['name'])
+    echo ""
+    ask "Which model do you want to use?"
+    MODELS_JSON=$(curl -s --connect-timeout 5 "http://${OLLAMA_IP}:11434/api/tags" 2>/dev/null)
+    if [ -n "$MODELS_JSON" ]; then
+        echo "  Models on your server:"
+        echo "$MODELS_JSON" | python3 -c "
+import json,sys
+for m in json.load(sys.stdin).get('models',[]): print('    •', m['name'])
 " 2>/dev/null || true
+        echo ""
+    fi
+    read -p "  Model name: " MODEL
+    [ -n "$MODEL" ] || { echo -e "${RED}Model name is required.${NC}"; exit 1; }
+    ;;
+
+  2)
+    PROVIDER="Gemini"
+    echo ""
+    ask "Gemini API key  (get one free at aistudio.google.com):"
+    read -p "  API key: " API_KEY
+    [ -n "$API_KEY" ] || { echo -e "${RED}API key is required.${NC}"; exit 1; }
+    echo ""
+    ask "Which model?  (leave blank for gemini-2.0-flash)"
+    echo "  Options: gemini-2.0-flash   gemini-1.5-pro   gemini-1.5-flash"
+    read -p "  Model [gemini-2.0-flash]: " MODEL
+    MODEL=${MODEL:-gemini-2.0-flash}
+    ;;
+
+  3)
+    PROVIDER="Claude"
+    echo ""
+    ask "Anthropic API key  (console.anthropic.com):"
+    read -p "  API key: " API_KEY
+    [ -n "$API_KEY" ] || { echo -e "${RED}API key is required.${NC}"; exit 1; }
+    echo ""
+    ask "Which model?  (leave blank for claude-sonnet-4-5)"
+    echo "  Options: claude-opus-4-5   claude-sonnet-4-5   claude-haiku-4-5"
+    read -p "  Model [claude-sonnet-4-5]: " MODEL
+    MODEL=${MODEL:-claude-sonnet-4-5}
+    ;;
+
+  4)
+    PROVIDER="OpenAI"
+    echo ""
+    ask "OpenAI API key  (platform.openai.com):"
+    read -p "  API key: " API_KEY
+    [ -n "$API_KEY" ] || { echo -e "${RED}API key is required.${NC}"; exit 1; }
+    echo ""
+    ask "Which model?  (leave blank for gpt-4o)"
+    echo "  Options: gpt-4o   gpt-4o-mini   gpt-4-turbo"
+    read -p "  Model [gpt-4o]: " MODEL
+    MODEL=${MODEL:-gpt-4o}
+    ;;
+
+  *)
+    echo -e "${RED}Invalid choice.${NC}"; exit 1
+    ;;
+esac
+
+# ── Your name ──────────────────────────────────────────────────
+echo ""
+ask "Your first name  (used for email sign-offs):"
+read -p "  Name: " USER_NAME
+USER_NAME=${USER_NAME:-User}
+
+# ── Terminal alias ─────────────────────────────────────────────
+echo ""
+ask "Terminal command name  (what you type in the terminal to launch Coda):"
+read -p "  Command [coda]: " ALIAS_NAME
+ALIAS_NAME=${ALIAS_NAME:-coda}
+
+# ── Email Agent ────────────────────────────────────────────────
+echo ""
+hr
+echo ""
+ask "Email Agent setup  (reads inbox, writes replies with AI)"
+echo "  This needs a Gmail App Password."
+echo "  Get one at: myaccount.google.com → Security → App Passwords"
+echo ""
+read -p "  Set up Email Agent now? [y/N]: " SETUP_EMAIL
+
+EMAIL_ADDR=""
+APP_PASSWORD=""
+EMAIL_PROVIDER="Gmail"
+IMAP_SERVER="imap.gmail.com"
+SMTP_SERVER="smtp.gmail.com"
+
+if [ "${SETUP_EMAIL,,}" = "y" ]; then
+    echo ""
+    ask "Email address:"
+    read -p "  Email: " EMAIL_ADDR
+    echo ""
+    ask "App Password  (16 characters, spaces are fine):"
+    read -s -p "  App Password: " APP_PASSWORD
     echo ""
 fi
 
-read -p "  Model name: " MODEL_NAME
+# ── Confirm ────────────────────────────────────────────────────
+echo ""
+hr
+echo -e "  ${BOLD}Ready to install with:${RESET}"
+echo ""
+echo "    Provider  :  $PROVIDER"
+[ -n "$OLLAMA_IP" ] && echo "    Ollama    :  http://${OLLAMA_IP}:11434"
+echo "    Model     :  $MODEL"
+echo "    Command   :  $ALIAS_NAME"
+echo "    Your name :  $USER_NAME"
+[ -n "$EMAIL_ADDR" ] && echo "    Email     :  $EMAIL_ADDR"
+echo ""
+hr
+echo ""
+read -p "  Proceed? [Y/n]: " PROCEED
+[ "${PROCEED,,}" = "n" ] && { echo "Aborted."; exit 0; }
+echo ""
 
-if [ -z "$MODEL_NAME" ]; then
-    echo -e "  ${RED}Model name cannot be empty.${NC}"
-    exit 1
+# ══════════════════════════════════════════════════════════════
+#  INSTALLATION
+# ══════════════════════════════════════════════════════════════
+
+# ── 1: System packages ─────────────────────────────────────────
+step 1 "Installing system packages..."
+sudo apt-get install -y -q \
+    python3 python3-pip python3-tk python3-venv \
+    python3-nautilus gir1.2-ayatanaappindicator3-0.1 \
+    wmctrl libnotify-bin 2>/dev/null || true
+ok "Done"
+
+# ── 2: Python packages ─────────────────────────────────────────
+step 2 "Installing Python packages..."
+/usr/bin/pip3 install pystray pillow --break-system-packages -q 2>/dev/null
+ok "pystray and pillow installed"
+
+# ── 3: Aider ───────────────────────────────────────────────────
+step 3 "Setting up Aider  (the coding engine)..."
+if [ ! -d "$HOME/aider-env" ]; then
+    python3 -m venv ~/aider-env
 fi
-
-# --- Ask for alias name ---
-echo ""
-echo -e "${YELLOW}What command do you want to type to launch Coda?${NC}"
-echo "  Default: coda"
-echo ""
-read -p "  Command name [coda]: " ALIAS_NAME
-
-if [ -z "$ALIAS_NAME" ]; then
-    ALIAS_NAME="coda"
-fi
-
-echo ""
-echo "============================================================"
-echo -e "  ${BOLD}Installing Coda with:${RESET}"
-echo "    Ollama:  http://${OLLAMA_IP}:11434"
-echo "    Model:   ${MODEL_NAME}"
-echo "    Command: ${ALIAS_NAME}"
-echo "============================================================"
-echo ""
-
-# --- Step 1: Install Python dependencies ---
-echo -e "${BLUE}[1/5]${NC} Installing Python dependencies..."
-sudo apt-get install -y python3 python3-pip python3-tk python3-venv python3-nautilus gir1.2-ayatanaappindicator3-0.1 > /dev/null 2>&1
-/usr/bin/pip3 install pystray pillow --break-system-packages > /dev/null 2>&1
-echo -e "  ${GREEN}✓ Done${NC}"
-
-# --- Step 2: Install Aider ---
-echo -e "${BLUE}[2/5]${NC} Installing Aider..."
-python3 -m venv ~/aider-env > /dev/null 2>&1
 source ~/aider-env/bin/activate
-pip install aider-chat > /dev/null 2>&1
-echo -e "  ${GREEN}✓ Done${NC}"
+pip install aider-chat -q 2>/dev/null
+deactivate
+ok "Aider installed in ~/aider-env"
 
-# --- Step 3: Set up alias ---
-echo -e "${BLUE}[3/5]${NC} Setting up '${ALIAS_NAME}' command..."
+# ── 4: Download Coda ───────────────────────────────────────────
+step 4 "Downloading Coda..."
+mkdir -p "$CODA_DIR"
+for f in coda-tray.py coda-email.py coda-preferences.py; do
+    echo -e "    Downloading ${CYAN}${f}${NC}..."
+    curl -fsSL "${REPO}/${f}" -o "${CODA_DIR}/${f}"
+done
+ok "All files saved to ~/Coda/"
 
-ALIAS_LINE="alias ${ALIAS_NAME}='source ~/aider-env/bin/activate && OLLAMA_API_BASE=http://${OLLAMA_IP}:11434 aider --model ollama/${MODEL_NAME}'"
+# ── 5: Configuration ───────────────────────────────────────────
+step 5 "Writing configuration..."
+mkdir -p "$CONFIG_DIR"
 
-# Remove old coda alias if exists
-sed -i '/alias coda=/d' ~/.bashrc
-
-echo "" >> ~/.bashrc
-echo "# Coda - Local AI coding assistant" >> ~/.bashrc
-echo "$ALIAS_LINE" >> ~/.bashrc
-
-echo -e "  ${GREEN}✓ Done${NC}"
-
-# --- Step 4: Install Nautilus extension ---
-echo -e "${BLUE}[4/5]${NC} Installing right-click menu extension..."
-
-sudo mkdir -p /usr/share/nautilus-python/extensions/
-
-sudo tee /usr/share/nautilus-python/extensions/coda_extension.py > /dev/null << PYEOF
-import subprocess
-import urllib.parse
-import gi
-gi.require_version('Nautilus', '4.0')
-from gi.repository import Nautilus, GObject
-
-class CodaExtension(GObject.GObject, Nautilus.MenuProvider):
-    def get_background_items(self, current_folder):
-        return []
-
-    def get_file_items(self, files):
-        if len(files) != 1:
-            return []
-        file = files[0]
-        if file.get_uri_scheme() != 'file':
-            return []
-        if not file.is_directory():
-            return []
-        folder = urllib.parse.unquote(file.get_uri().replace("file://", ""))
-        item = Nautilus.MenuItem(
-            name="CodaExtension::call_coda",
-            label="Call Coda",
-            tip="Launch Coda AI in this folder"
-        )
-        item.connect("activate", self.launch_coda, folder)
-        return [item]
-
-    def launch_coda(self, menu, folder):
-        cmd = f"cd '{folder}' && source ~/aider-env/bin/activate && OLLAMA_API_BASE=http://${OLLAMA_IP}:11434 aider --model ollama/${MODEL_NAME} ; exec bash"
-        subprocess.Popen([
-            'gnome-terminal', '--title=Coda 🤖', '--', 'bash', '-c', cmd
-        ])
+# Write config.json via Python (handles special characters in API keys safely)
+PROVIDER="$PROVIDER" OLLAMA_IP="$OLLAMA_IP" MODEL="$MODEL" \
+API_KEY="$API_KEY" EMAIL_PROVIDER="$EMAIL_PROVIDER" \
+EMAIL_ADDR="$EMAIL_ADDR" APP_PASSWORD="$APP_PASSWORD" \
+IMAP_SERVER="$IMAP_SERVER" SMTP_SERVER="$SMTP_SERVER" \
+ALIAS_NAME="$ALIAS_NAME" USER_NAME="$USER_NAME" \
+python3 << 'PYEOF'
+import json, os
+cfg = {
+    "provider":        os.environ["PROVIDER"],
+    "ollama_ip":       os.environ["OLLAMA_IP"],
+    "model":           os.environ["MODEL"],
+    "api_key":         os.environ["API_KEY"],
+    "custom_url":      "",
+    "email_provider":  os.environ["EMAIL_PROVIDER"],
+    "email":           os.environ["EMAIL_ADDR"],
+    "app_password":    os.environ["APP_PASSWORD"],
+    "imap_server":     os.environ["IMAP_SERVER"],
+    "smtp_server":     os.environ["SMTP_SERVER"],
+    "alias":           os.environ["ALIAS_NAME"],
+    "refresh_minutes": 5,
+    "user_name":       os.environ["USER_NAME"],
+}
+path = os.path.expanduser("~/.config/coda/config.json")
+with open(path, "w") as f:
+    json.dump(cfg, f, indent=2)
+os.chmod(path, 0o600)
 PYEOF
 
+# Write email.conf (used by the email agent)
+EMAIL_ADDR="$EMAIL_ADDR" APP_PASSWORD="$APP_PASSWORD" \
+IMAP_SERVER="$IMAP_SERVER" SMTP_SERVER="$SMTP_SERVER" \
+EMAIL_PROVIDER="$EMAIL_PROVIDER" OLLAMA_IP="$OLLAMA_IP" MODEL="$MODEL" \
+python3 << 'PYEOF'
+import os
+lines = [
+    f"EMAIL={os.environ['EMAIL_ADDR']}",
+    f"APP_PASSWORD={os.environ['APP_PASSWORD']}",
+    f"IMAP_SERVER={os.environ['IMAP_SERVER']}",
+    f"SMTP_SERVER={os.environ['SMTP_SERVER']}",
+    f"PROVIDER={os.environ['EMAIL_PROVIDER']}",
+    f"OLLAMA_IP={os.environ['OLLAMA_IP']}",
+    f"MODEL={os.environ['MODEL']}",
+]
+path = os.path.expanduser("~/.config/coda/email.conf")
+os.makedirs(os.path.dirname(path), exist_ok=True)
+with open(path, "w") as f:
+    f.write("\n".join(lines) + "\n")
+os.chmod(path, 0o600)
+PYEOF
+
+ok "Configuration saved to ~/.config/coda/"
+
+# ── 6: Terminal alias ──────────────────────────────────────────
+step 6 "Setting up '${ALIAS_NAME}' terminal command..."
+
+# Remove any old coda alias lines
+sed -i '/# Coda - Local AI/d' ~/.bashrc 2>/dev/null || true
+sed -i '/alias coda/d' ~/.bashrc 2>/dev/null || true
+
+if [ "$PROVIDER" = "Ollama (local)" ]; then
+    ALIAS_CMD="source ~/aider-env/bin/activate && OLLAMA_API_BASE=http://${OLLAMA_IP}:11434 aider --model ollama/${MODEL}"
+elif [ "$PROVIDER" = "Gemini" ]; then
+    ALIAS_CMD="source ~/aider-env/bin/activate && GEMINI_API_KEY=${API_KEY} aider --model gemini/${MODEL}"
+elif [ "$PROVIDER" = "Claude" ]; then
+    ALIAS_CMD="source ~/aider-env/bin/activate && ANTHROPIC_API_KEY=${API_KEY} aider --model ${MODEL}"
+elif [ "$PROVIDER" = "OpenAI" ]; then
+    ALIAS_CMD="source ~/aider-env/bin/activate && OPENAI_API_KEY=${API_KEY} aider --model ${MODEL}"
+fi
+
+{
+    echo ""
+    echo "# Coda - Local AI coding assistant"
+    printf "alias %s='%s'\n" "$ALIAS_NAME" "$ALIAS_CMD"
+} >> ~/.bashrc
+ok "'${ALIAS_NAME}' command ready  (run: source ~/.bashrc)"
+
+# ── 7: Desktop integration ─────────────────────────────────────
+step 7 "Setting up desktop integration..."
+
+# Nautilus right-click extension
+sudo mkdir -p /usr/share/nautilus-python/extensions/
+sudo curl -fsSL "${REPO}/coda_extension.py" \
+     -o /usr/share/nautilus-python/extensions/coda_extension.py -q
 nautilus -q 2>/dev/null || true
-echo -e "  ${GREEN}✓ Done${NC}"
+ok "Right-click 'Call Coda' installed"
 
-# --- Step 5: Install tray icon ---
-echo -e "${BLUE}[5/5]${NC} Installing system tray icon..."
+# Icon
+mkdir -p ~/.local/share/icons
+cat > ~/.local/share/icons/coda.svg << 'SVGEOF'
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" rx="20" fill="#ffffff" stroke="#000000" stroke-width="4"/>
+  <text x="50" y="72" font-family="DejaVu Sans,sans-serif" font-size="72"
+        font-weight="bold" fill="#000000" text-anchor="middle">C</text>
+</svg>
+SVGEOF
 
-cat > ~/coda-tray.py << TRAYEOF
-import subprocess
-import pystray
-from pystray import MenuItem as item
-from PIL import Image, ImageDraw, ImageFont
+# App launcher entry
+mkdir -p ~/.local/share/applications
+cat > ~/.local/share/applications/coda.desktop << DESKEOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Coda
+Comment=Your local AI assistant
+Exec=/usr/bin/python3 ${CODA_DIR}/coda-tray.py
+Icon=${HOME}/.local/share/icons/coda.svg
+Terminal=false
+Categories=Development;Utility;
+StartupNotify=false
+DESKEOF
+chmod +x ~/.local/share/applications/coda.desktop
+[ -d ~/Desktop ] && cp ~/.local/share/applications/coda.desktop ~/Desktop/ \
+    && chmod +x ~/Desktop/coda.desktop
 
-def create_icon():
-    img = Image.new('RGBA', (64, 64), color=(0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    draw.ellipse([2, 2, 62, 62], fill='white', outline='black', width=2)
-    try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 52)
-    except:
-        font = ImageFont.load_default()
-    bbox = draw.textbbox((0, 0), "C", font=font)
-    w = bbox[2] - bbox[0]
-    h = bbox[3] - bbox[1]
-    x = (64 - w) / 2
-    y = (64 - h) / 2
-    draw.text((x, y), "C", fill='black', font=font)
-    return img
-
-def launch_coda(icon, query):
-    import tkinter as tk
-    from tkinter import filedialog
-    root = tk.Tk()
-    root.withdraw()
-    folder = filedialog.askdirectory(title="Choose your project folder")
-    if folder:
-        cmd = f"cd '{folder}' && source ~/aider-env/bin/activate && OLLAMA_API_BASE=http://${OLLAMA_IP}:11434 aider --model ollama/${MODEL_NAME} ; exec bash"
-        subprocess.Popen([
-            'gnome-terminal', '--title=Coda 🤖', '--', 'bash', '-c', cmd
-        ])
-
-def quit_app(icon, query):
-    icon.stop()
-
-icon = pystray.Icon(
-    "Coda",
-    create_icon(),
-    "Coda AI",
-    menu=pystray.Menu(
-        item('Launch Coda', launch_coda),
-        item('Quit', quit_app)
-    )
-)
-
-icon.run()
-TRAYEOF
-
-echo -e "  ${GREEN}✓ Done${NC}"
-
-# --- Auto-start tray on login ---
+# Autostart on login
 mkdir -p ~/.config/autostart
-cat > ~/.config/autostart/coda-tray.desktop << AUTOEOF
+cat > ~/.config/autostart/coda.desktop << AUTOEOF
 [Desktop Entry]
 Type=Application
-Name=Coda Tray
-Exec=/usr/bin/python3 /home/$USER/coda-tray.py
+Name=Coda
+Exec=/usr/bin/python3 ${CODA_DIR}/coda-tray.py
 Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
 AUTOEOF
 
-# --- Done! ---
+update-desktop-database ~/.local/share/applications/ 2>/dev/null || true
+ok "App launcher entry, desktop icon and autostart on login ready"
+
+# ══════════════════════════════════════════════════════════════
+#  DONE
+# ══════════════════════════════════════════════════════════════
 echo ""
-echo "============================================================"
-echo -e "  ${GREEN}${BOLD}✓ Coda installed successfully!${RESET}"
-echo "============================================================"
+hr
+echo -e "  ${GREEN}${BOLD}✓  Coda installed!${RESET}"
+hr
 echo ""
 echo "  How to use:"
 echo ""
-echo -e "  ${YELLOW}From the file manager:${NC}"
-echo "    Open any project folder → right-click → Call Coda"
+echo -e "  ${CYAN}System tray:${NC}"
+echo "    Search 'Coda' in your app launcher and click it."
+echo "    The C icon appears in your taskbar — click it to code or check email."
 echo ""
-echo -e "  ${YELLOW}From the terminal:${NC}"
-echo "    cd ~/my-project"
-echo "    ${ALIAS_NAME}"
+echo -e "  ${CYAN}Right-click any project folder:${NC}"
+echo "    Open file manager → right-click a folder → Call Coda"
 echo ""
-echo -e "  ${YELLOW}Reload your terminal to activate the command:${NC}"
+echo -e "  ${CYAN}Terminal:${NC}"
 echo "    source ~/.bashrc"
+echo "    cd ~/my-project && ${ALIAS_NAME}"
 echo ""
-echo "  Enjoy Coda! 🤖"
+echo -e "  ${CYAN}Change settings anytime:${NC}"
+echo "    C icon in taskbar → Preferences"
+echo ""
+hr
+echo ""
+read -p "  Start Coda now? [Y/n]: " START_NOW
+if [ "${START_NOW,,}" != "n" ]; then
+    /usr/bin/python3 "${CODA_DIR}/coda-tray.py" &
+    echo ""
+    ok "Coda is running — look for the C icon in your taskbar!"
+fi
 echo ""
