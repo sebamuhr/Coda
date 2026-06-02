@@ -16,23 +16,18 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.header import decode_header
 
-# --- Config ---
-_config = {}
-try:
-    with open(os.path.expanduser('~/.config/coda/email.conf')) as f:
-        for line in f:
-            if '=' in line:
-                k, v = line.strip().split('=', 1)
-                _config[k] = v
-except Exception:
-    pass
-
-EMAIL        = _config.get('EMAIL', '')
-APP_PASSWORD = _config.get('APP_PASSWORD', '')
-IMAP_SERVER  = _config.get('IMAP_SERVER', 'imap.gmail.com')
-SMTP_SERVER  = _config.get('SMTP_SERVER', 'smtp.gmail.com')
-OLLAMA_IP    = _config.get('OLLAMA_IP', 'localhost')
-MODEL        = _config.get('MODEL', 'coda:2.0')
+# --- Config (read fresh on every call so Preferences changes take effect immediately) ---
+def _cfg():
+    c = {}
+    try:
+        with open(os.path.expanduser('~/.config/coda/email.conf')) as f:
+            for line in f:
+                if '=' in line:
+                    k, v = line.strip().split('=', 1)
+                    c[k] = v
+    except Exception:
+        pass
+    return c
 
 PREFS_FILE           = os.path.expanduser('~/.config/coda/window.json')
 AUTO_REFRESH_MINUTES = 5
@@ -100,8 +95,9 @@ def get_body(msg):
     return ''
 
 def fetch_emails(folder='INBOX', criteria='UNSEEN'):
-    mail = imaplib.IMAP4_SSL(IMAP_SERVER)
-    mail.login(EMAIL, APP_PASSWORD)
+    cfg = _cfg()
+    mail = imaplib.IMAP4_SSL(cfg.get('IMAP_SERVER', 'imap.gmail.com'))
+    mail.login(cfg.get('EMAIL', ''), cfg.get('APP_PASSWORD', ''))
     mail.select(folder)
     _, data = mail.search(None, criteria)
     ids = data[0].split()[-15:]
@@ -123,8 +119,9 @@ def fetch_emails(folder='INBOX', criteria='UNSEEN'):
     return result
 
 def fetch_drafts():
-    mail = imaplib.IMAP4_SSL(IMAP_SERVER)
-    mail.login(EMAIL, APP_PASSWORD)
+    cfg = _cfg()
+    mail = imaplib.IMAP4_SSL(cfg.get('IMAP_SERVER', 'imap.gmail.com'))
+    mail.login(cfg.get('EMAIL', ''), cfg.get('APP_PASSWORD', ''))
     mail.select('"[Gmail]/Drafts"')
     _, data = mail.search(None, 'ALL')
     ids = data[0].split()[-15:]
@@ -147,7 +144,7 @@ def fetch_drafts():
 
 def build_msg(to, subject, body, selected_email=None):
     msg = MIMEMultipart('alternative')
-    msg['From']    = EMAIL
+    msg['From']    = _cfg().get('EMAIL', '')
     msg['To']      = to
     msg['Subject'] = ('Re: ' + subject) if selected_email and not subject.startswith('Re:') else subject
     msg['Date']    = email.utils.formatdate(localtime=True)
@@ -159,17 +156,19 @@ def build_msg(to, subject, body, selected_email=None):
     return msg
 
 def save_draft(to, subject, body, selected_email=None):
+    cfg = _cfg()
     msg = build_msg(to, subject, body, selected_email)
-    mail = imaplib.IMAP4_SSL(IMAP_SERVER)
-    mail.login(EMAIL, APP_PASSWORD)
+    mail = imaplib.IMAP4_SSL(cfg.get('IMAP_SERVER', 'imap.gmail.com'))
+    mail.login(cfg.get('EMAIL', ''), cfg.get('APP_PASSWORD', ''))
     mail.append('"[Gmail]/Drafts"', '', None, msg.as_bytes())
     mail.logout()
 
 def send_email(to, subject, body, selected_email=None):
+    cfg = _cfg()
     msg = build_msg(to, subject, body, selected_email)
-    with smtplib.SMTP_SSL(SMTP_SERVER, 465) as smtp:
-        smtp.login(EMAIL, APP_PASSWORD)
-        smtp.sendmail(EMAIL, to, msg.as_bytes())
+    with smtplib.SMTP_SSL(cfg.get('SMTP_SERVER', 'smtp.gmail.com'), 465) as smtp:
+        smtp.login(cfg.get('EMAIL', ''), cfg.get('APP_PASSWORD', ''))
+        smtp.sendmail(cfg.get('EMAIL', ''), to, msg.as_bytes())
 
 def ask_coda(context, instruction, mode='reply'):
     if mode == 'new':
@@ -186,9 +185,10 @@ def ask_coda(context, instruction, mode='reply'):
             "Write only the email body. No subject line. Sign off as Sebastian."
         )
     try:
+        cfg = _cfg()
         resp = requests.post(
-            f'http://{OLLAMA_IP}:11434/api/generate',
-            json={'model': MODEL, 'prompt': prompt, 'stream': False},
+            f"http://{cfg.get('OLLAMA_IP', 'localhost')}:11434/api/generate",
+            json={'model': cfg.get('MODEL', 'coda:2.0'), 'prompt': prompt, 'stream': False},
             timeout=120,
         )
         return resp.json()['response']
