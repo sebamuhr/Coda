@@ -60,6 +60,9 @@ Click **C → Email Agent** in your system tray:
 
 Your emails stay on your machine. Coda connects directly to Gmail (or any IMAP provider) via App Password — no third party involved.
 
+![Email Agent](assistant1.png)
+![Email Agent in action](assistant2.png)
+
 ---
 
 ## Requirements
