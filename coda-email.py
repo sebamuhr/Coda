@@ -10,6 +10,7 @@ import re
 import json
 import os
 import signal
+import subprocess
 import threading
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
@@ -30,7 +31,48 @@ def _cfg():
         pass
     return c
 
-PREFS_FILE           = os.path.expanduser('~/.config/coda/window.json')
+PREFS_FILE = os.path.expanduser('~/.config/coda/window.json')
+
+def apply_theme(root, setting='light'):
+    actual = setting
+    if setting == 'auto':
+        try:
+            r = subprocess.run(
+                ['gsettings', 'get', 'org.gnome.desktop.interface', 'color-scheme'],
+                capture_output=True, text=True, timeout=2)
+            actual = 'dark' if 'dark' in r.stdout.lower() else 'light'
+        except Exception:
+            actual = 'light'
+    style = ttk.Style(root)
+    style.theme_use('clam')
+    if actual == 'dark':
+        BG, BG2, BG3 = '#2b2b2b', '#3c3f41', '#525556'
+        FG, SEL      = '#c0c0c0', '#4472c4'
+        root.configure(bg=BG)
+        for k, v in [('*Background', BG), ('*Foreground', FG),
+                     ('*selectBackground', SEL), ('*selectForeground', FG),
+                     ('*insertBackground', FG), ('*Text.Background', BG2),
+                     ('*Listbox.Background', BG2), ('*Canvas.Background', BG)]:
+            root.option_add(k, v, 'interactive')
+        s, m = style.configure, style.map
+        s('.',                 background=BG,  foreground=FG)
+        s('TFrame',            background=BG)
+        s('TLabel',            background=BG,  foreground=FG)
+        s('TButton',           background=BG2, foreground=FG)
+        m('TButton',           background=[('active', BG3), ('pressed', BG)])
+        s('TEntry',            fieldbackground=BG2, foreground=FG, insertcolor=FG)
+        s('TCombobox',         fieldbackground=BG2, foreground=FG,
+                               selectbackground=SEL, arrowcolor=FG)
+        m('TCombobox',         fieldbackground=[('readonly', BG2)],
+                               foreground=[('readonly', FG)])
+        s('TNotebook',         background=BG)
+        s('TNotebook.Tab',     background=BG2, foreground=FG, padding=[8, 4])
+        m('TNotebook.Tab',     background=[('selected', BG3)])
+        s('TLabelframe',       background=BG,  bordercolor=BG3)
+        s('TLabelframe.Label', background=BG,  foreground=FG)
+        s('TSeparator',        background=BG3)
+        s('TScrollbar',        background=BG2, troughcolor=BG, arrowcolor=FG)
+        m('TScrollbar',        background=[('active', BG3)])
 AUTO_REFRESH_MINUTES = 5
 
 # --- Window prefs ---
@@ -224,9 +266,7 @@ class EmailApp:
         signal.signal(signal.SIGUSR1,
                       lambda s, f: self.root.after(0, self._show_window))
 
-        # Match preferences window style exactly
-        style = ttk.Style()
-        style.theme_use('clam')
+        apply_theme(root, _cfg().get('THEME', 'light'))
 
         self.cache    = {k: None for k in self.TAB_KEYS}
         self.selected = {k: None for k in self.TAB_KEYS}

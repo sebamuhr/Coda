@@ -48,6 +48,47 @@ EMAIL_PRIVACY_WARNING = (
     "so your emails never leave your machine."
 )
 
+def apply_theme(root, setting='light'):
+    actual = setting
+    if setting == 'auto':
+        try:
+            r = subprocess.run(
+                ['gsettings', 'get', 'org.gnome.desktop.interface', 'color-scheme'],
+                capture_output=True, text=True, timeout=2)
+            actual = 'dark' if 'dark' in r.stdout.lower() else 'light'
+        except Exception:
+            actual = 'light'
+    style = ttk.Style(root)
+    style.theme_use('clam')
+    if actual == 'dark':
+        BG, BG2, BG3 = '#2b2b2b', '#3c3f41', '#525556'
+        FG, SEL      = '#c0c0c0', '#4472c4'
+        root.configure(bg=BG)
+        for k, v in [('*Background', BG), ('*Foreground', FG),
+                     ('*selectBackground', SEL), ('*selectForeground', FG),
+                     ('*insertBackground', FG), ('*Text.Background', BG2),
+                     ('*Listbox.Background', BG2), ('*Canvas.Background', BG)]:
+            root.option_add(k, v, 'interactive')
+        s, m = style.configure, style.map
+        s('.',                 background=BG,  foreground=FG)
+        s('TFrame',            background=BG)
+        s('TLabel',            background=BG,  foreground=FG)
+        s('TButton',           background=BG2, foreground=FG)
+        m('TButton',           background=[('active', BG3), ('pressed', BG)])
+        s('TEntry',            fieldbackground=BG2, foreground=FG, insertcolor=FG)
+        s('TCombobox',         fieldbackground=BG2, foreground=FG,
+                               selectbackground=SEL, arrowcolor=FG)
+        m('TCombobox',         fieldbackground=[('readonly', BG2)],
+                               foreground=[('readonly', FG)])
+        s('TNotebook',         background=BG)
+        s('TNotebook.Tab',     background=BG2, foreground=FG, padding=[8, 4])
+        m('TNotebook.Tab',     background=[('selected', BG3)])
+        s('TLabelframe',       background=BG,  bordercolor=BG3)
+        s('TLabelframe.Label', background=BG,  foreground=FG)
+        s('TSeparator',        background=BG3)
+        s('TScrollbar',        background=BG2, troughcolor=BG, arrowcolor=FG)
+        m('TScrollbar',        background=[('active', BG3)])
+
 def load_config():
     defaults = {
         "provider": "Ollama (local)",
@@ -66,6 +107,7 @@ def load_config():
         "email_ai_provider": "Ollama (local)",
         "email_ai_key": "",
         "email_sync_count": 15,
+        "theme": "light",
     }
     try:
         with open(CONFIG_FILE) as f:
@@ -90,6 +132,7 @@ def write_email_conf(cfg):
         f"OLLAMA_IP={cfg.get('ollama_ip','')}",
         f"MODEL={cfg.get('model','')}",
         f"SYNC_COUNT={cfg.get('email_sync_count', 15)}",
+        f"THEME={cfg.get('theme', 'light')}",
     ]
     os.makedirs(os.path.dirname(EMAIL_CONF), exist_ok=True)
     with open(EMAIL_CONF, 'w') as f:
@@ -146,14 +189,13 @@ class PreferencesApp:
         self.root = root
         self.root.title("Coda — Preferences")
         self.root.resizable(True, True)
-        self.root.geometry("560x480")
+        self.root.geometry("560x560")
         self.cfg = load_config()
+        apply_theme(root, self.cfg.get('theme', 'light'))
         self._build_ui()
         self._load_values()
 
     def _build_ui(self):
-        style = ttk.Style()
-        style.theme_use('clam')
 
         nb = ttk.Notebook(self.root)
         nb.pack(fill='both', expand=True, padx=10, pady=10)
@@ -273,22 +315,26 @@ class PreferencesApp:
         self.var_sync_count = tk.StringVar()
         ttk.Entry(f, textvariable=self.var_sync_count, width=8).grid(row=7, column=1, sticky='w', pady=4)
 
-        ttk.Separator(f).grid(row=8, column=0, columnspan=2, sticky='ew', pady=10)
+        ttk.Label(f, text="Auto-refresh (minutes):").grid(row=8, column=0, sticky='w', pady=4)
+        self.var_refresh = tk.StringVar()
+        ttk.Entry(f, textvariable=self.var_refresh, width=8).grid(row=8, column=1, sticky='w', pady=4)
 
-        ttk.Label(f, text="Email AI Provider", font=('', 11, 'bold')).grid(row=9, column=0, columnspan=2, sticky='w', pady=(0,6))
-        ttk.Label(f, text="Use which AI to write email replies:").grid(row=10, column=0, columnspan=2, sticky='w')
+        ttk.Separator(f).grid(row=9, column=0, columnspan=2, sticky='ew', pady=10)
 
-        ttk.Label(f, text="Provider:").grid(row=11, column=0, sticky='w', pady=4)
+        ttk.Label(f, text="Email AI Provider", font=('', 11, 'bold')).grid(row=10, column=0, columnspan=2, sticky='w', pady=(0,6))
+        ttk.Label(f, text="Use which AI to write email replies:").grid(row=11, column=0, columnspan=2, sticky='w')
+
+        ttk.Label(f, text="Provider:").grid(row=12, column=0, sticky='w', pady=4)
         self.var_email_ai = tk.StringVar()
         self.cb_email_ai = ttk.Combobox(f, textvariable=self.var_email_ai, values=PROVIDERS, state='readonly', width=28)
-        self.cb_email_ai.grid(row=11, column=1, sticky='ew', pady=4)
+        self.cb_email_ai.grid(row=12, column=1, sticky='ew', pady=4)
         self.cb_email_ai.bind('<<ComboboxSelected>>', self._on_email_ai_change)
 
         self.lbl_email_ai_key = ttk.Label(f, text="API Key:")
-        self.lbl_email_ai_key.grid(row=12, column=0, sticky='w', pady=4)
+        self.lbl_email_ai_key.grid(row=13, column=0, sticky='w', pady=4)
         self.var_email_ai_key = tk.StringVar()
         self.ent_email_ai_key = ttk.Entry(f, textvariable=self.var_email_ai_key, show='*', width=30)
-        self.ent_email_ai_key.grid(row=12, column=1, sticky='ew', pady=4)
+        self.ent_email_ai_key.grid(row=13, column=1, sticky='ew', pady=4)
 
         f.columnconfigure(1, weight=1)
 
@@ -321,13 +367,16 @@ class PreferencesApp:
 
         ttk.Label(f, text="Terminal alias:").grid(row=2, column=0, sticky='w', pady=4)
         self.var_alias = tk.StringVar()
-        ttk.Entry(f, textvariable=self.var_alias, width=30).grid(row=2, column=1, sticky='ew', pady=4)
-        ttk.Label(f, text="Type this in terminal to launch Coda", foreground='gray', font=('', 9)).grid(
+        ttk.Entry(f, textvariable=self.var_alias, width=30, state='readonly').grid(row=2, column=1, sticky='ew', pady=4)
+        ttk.Label(f, text="Fixed — type 'coda' in terminal to launch", foreground='gray', font=('', 9)).grid(
             row=3, column=0, columnspan=2, sticky='w')
 
-        ttk.Label(f, text="Email auto-refresh (minutes):").grid(row=4, column=0, sticky='w', pady=10)
-        self.var_refresh = tk.StringVar()
-        ttk.Entry(f, textvariable=self.var_refresh, width=8).grid(row=4, column=1, sticky='w', pady=10)
+        ttk.Label(f, text="Theme:").grid(row=4, column=0, sticky='w', pady=10)
+        self.var_theme = tk.StringVar()
+        ttk.Combobox(f, textvariable=self.var_theme, values=['Light', 'Dark', 'Auto'],
+                     state='readonly', width=14).grid(row=4, column=1, sticky='w', pady=10)
+        ttk.Label(f, text="Restart Coda to apply a theme change", foreground='gray', font=('', 9)).grid(
+            row=5, column=0, columnspan=2, sticky='w')
 
         f.columnconfigure(1, weight=1)
 
@@ -346,6 +395,7 @@ class PreferencesApp:
         self.var_imap.set(c.get('imap_server', 'imap.gmail.com'))
         self.var_smtp.set(c.get('smtp_server', 'smtp.gmail.com'))
         self.var_sync_count.set(str(c.get('email_sync_count', 15)))
+        self.var_refresh.set(str(c.get('refresh_minutes', 5)))
 
         email_ai = c.get('email_ai_provider', 'Ollama (local)')
         self.var_email_ai.set(email_ai)
@@ -355,15 +405,17 @@ class PreferencesApp:
             self.ent_email_ai_key.grid_remove()
 
         self.var_name.set(c.get('user_name', ''))
-        self.var_alias.set(c.get('alias', 'coda'))
-        self.var_refresh.set(str(c.get('refresh_minutes', 5)))
+        self.var_alias.set('coda')
+        self.var_theme.set(c.get('theme', 'light').capitalize())
 
     # ── Save ──────────────────────────────────────────
     def _save(self):
         try:
             refresh = int(self.var_refresh.get())
+            if refresh < 1:
+                raise ValueError
         except ValueError:
-            messagebox.showerror("Error", "Refresh interval must be a number.")
+            messagebox.showerror("Error", "Auto-refresh must be a positive number.")
             return
         try:
             sync_count = int(self.var_sync_count.get())
@@ -386,9 +438,10 @@ class PreferencesApp:
             "email_ai_provider": self.var_email_ai.get(),
             "email_ai_key":      self.var_email_ai_key.get().strip(),
             "user_name":         self.var_name.get().strip(),
-            "alias":             self.var_alias.get().strip(),
+            "alias":             "coda",
             "refresh_minutes":   refresh,
             "email_sync_count":  sync_count,
+            "theme":             self.var_theme.get().lower(),
         })
 
         save_config(self.cfg)
