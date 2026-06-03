@@ -263,19 +263,25 @@ def build_menu():
 
 # --- Quit ---
 def quit_app(icon, query):
-    # Close any windows that are hiding in the background
-    for proc in [_email_proc, _prefs_proc]:
-        if proc is not None and proc.poll() is None:
-            try:
-                proc.terminate()
-            except Exception:
-                pass
+    # Kill all Coda component processes regardless of how they were launched
+    subprocess.run(['pkill', '-f', 'coda-email.py'],       capture_output=True)
+    subprocess.run(['pkill', '-f', 'coda-preferences.py'], capture_output=True)
+    # Close gnome-terminal windows opened by Coda ("Coda · <provider>")
+    try:
+        result = subprocess.run(['wmctrl', '-l'], capture_output=True, text=True)
+        for line in result.stdout.splitlines():
+            parts = line.split(None, 3)
+            if len(parts) >= 4 and parts[3].startswith('Coda ·'):
+                subprocess.run(['wmctrl', '-ic', parts[0]], capture_output=True)
+    except Exception:
+        pass
     for f in [RUNNING_FILE, LOCK_FILE]:
         try:
             os.remove(f)
         except Exception:
             pass
     icon.stop()
+    os.kill(os.getpid(), signal.SIGTERM)
 
 # --- Main ---
 def main():

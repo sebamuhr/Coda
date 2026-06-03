@@ -59,6 +59,7 @@ def decode_str(s):
     return result
 
 def strip_html(h):
+    h = h.replace('\r\n', '\n').replace('\r', '\n')
     h = re.sub(r'<head\b[^>]*>.*?</head>', '', h, flags=re.DOTALL | re.IGNORECASE)
     h = re.sub(r'<!--.*?-->', '', h, flags=re.DOTALL)
     h = re.sub(r'<(style|script)\b[^>]*>.*?</(style|script)>', '', h, flags=re.DOTALL | re.IGNORECASE)
@@ -77,7 +78,7 @@ def get_body(msg):
             ct = part.get_content_type()
             if ct == 'text/plain' and not plain:
                 try:
-                    plain = part.get_payload(decode=True).decode('utf-8', errors='replace')
+                    plain = part.get_payload(decode=True).decode('utf-8', errors='replace').replace('\r\n', '\n').replace('\r', '\n')
                 except Exception:
                     pass
             elif ct == 'text/html' and not html:
@@ -87,7 +88,7 @@ def get_body(msg):
                     pass
     else:
         try:
-            raw = msg.get_payload(decode=True).decode('utf-8', errors='replace')
+            raw = msg.get_payload(decode=True).decode('utf-8', errors='replace').replace('\r\n', '\n').replace('\r', '\n')
             if msg.get_content_type() == 'text/html':
                 html = raw
             else:
