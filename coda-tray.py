@@ -32,12 +32,8 @@ def is_already_running():
 
 def write_lock():
     os.makedirs(MARKER_DIR, exist_ok=True)
-    # Remove stale terminal markers from previous sessions
-    for f in glob.glob(os.path.join(MARKER_DIR, 'term_*')):
-        try:
-            os.remove(f)
-        except Exception:
-            pass
+    # Do NOT clear existing markers — each terminal manages its own via
+    # bash trap on exit.  /tmp is tmpfs so stale markers vanish on reboot.
     open(RUNNING_FILE, 'w').close()
     with open(LOCK_FILE, 'w') as f:
         f.write(str(os.getpid()))
