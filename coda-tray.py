@@ -9,10 +9,11 @@ import signal
 import threading
 import pystray
 from pystray import MenuItem as item, Menu
+import colorsys
 from PIL import Image, ImageDraw, ImageFont
 
 # --- Paths ---
-CODA_DIR     = os.path.expanduser('~/Coda')
+CODA_DIR     = os.path.expanduser('~/coda-project')
 CONFIG_FILE  = os.path.expanduser('~/.config/coda/config.json')
 LOCK_FILE    = '/tmp/coda-tray.lock'
 RUNNING_FILE = '/tmp/coda-running'
@@ -110,34 +111,69 @@ def build_aider_cmd(folder, cfg, marker):
         f"cd '{folder}' && {activate} && {run} ; bash"
     )
 
-# --- Icon (with optional red badge showing terminal count) ---
-def create_icon(count=0):
-    img  = Image.new('RGBA', (64, 64), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    draw.ellipse([2, 2, 62, 62], fill='white', outline='black', width=2)
+# --- Icon helpers ---
+def _ithaca(size):
+    path = os.path.join(CODA_DIR, 'ithaca-font', 'Ithaca-LVB75.ttf')
     try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 52)
+        return ImageFont.truetype(path, size)
     except Exception:
-        font = ImageFont.load_default()
-    bbox = draw.textbbox((0, 0), "C", font=font)
-    w = bbox[2] - bbox[0]
-    h = bbox[3] - bbox[0]
-    draw.text(((64 - w) / 2 - 2, (64 - h) / 2 - 4), "C", fill='black', font=font)
+        return ImageFont.load_default()
 
-    if count > 0:
-        badge = str(min(count, 9))
-        try:
-            bfont = ImageFont.truetype(
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
-        except Exception:
-            bfont = ImageFont.load_default()
-        draw.ellipse([28, 28, 62, 62], fill='#e53935', outline='white', width=2)
-        bb = draw.textbbox((0, 0), badge, font=bfont)
-        cx, cy = 45, 45
-        draw.text((cx - (bb[0] + bb[2]) / 2, cy - (bb[1] + bb[3]) / 2),
-                  badge, fill='white', font=bfont)
+def _draw_C(draw, canvas, font_size, border=2):
+    p = max(1, border // 2)
+    draw.ellipse([p, p, canvas - p, canvas - p],
+                 fill='white', outline='black', width=border)
+    font = _ithaca(font_size)
+    bb = draw.textbbox((0, 0), 'C', font=font)
+    w, h = bb[2] - bb[0], bb[3] - bb[1]
+    x = (canvas - w) / 2 - bb[0] + canvas * 0.03  # slight rightward optical shift
+    y = (canvas - h) / 2 - bb[1]
+    draw.text((x, y), 'C', fill='black', font=font)
 
+# --- Icon (fill level: 0=white, 1=green sliver, 10=full red) ---
+def create_icon(count=0):
+    SIZE = 64
+    t = min(max(count, 0), 10) / 10.0
+
+    # White base circle (interior only, border drawn later)
+    base = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
+    ImageDraw.Draw(base).ellipse([2, 2, 62, 62], fill='white')
+
+    if t > 0:
+        # Hue sweeps from green (120°) to red (0°) as count rises
+        hue = (1 - t) * 120 / 360.0
+        rc, gc, bc = colorsys.hsv_to_rgb(hue, 0.90, 0.88)
+        fill_color = (int(rc * 255), int(gc * 255), int(bc * 255), 255)
+
+        fill_h   = max(6, int(60 * t))   # height of fill in pixels
+        fill_top = 62 - fill_h            # y where fill starts from top
+
+        # Colored circle, top portion cleared to transparent
+        overlay = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
+        ov = ImageDraw.Draw(overlay)
+        ov.ellipse([2, 2, 62, 62], fill=fill_color)
+        if fill_top > 2:
+            ov.rectangle([0, 0, SIZE, fill_top], fill=(0, 0, 0, 0))
+
+        img = Image.alpha_composite(base, overlay)
+    else:
+        img = base
+
+    # Border + C always on top
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([1, 1, 63, 63], outline='black', width=2)
+    font = _ithaca(54)
+    bb = draw.textbbox((0, 0), 'C', font=font)
+    w, h = bb[2] - bb[0], bb[3] - bb[1]
+    draw.text(((SIZE - w) / 2 - bb[0] + SIZE * 0.03,
+               (SIZE - h) / 2 - bb[1]), 'C', fill='black', font=font)
     return img
+
+def generate_desktop_icon():
+    SIZE = 256
+    img  = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
+    _draw_C(ImageDraw.Draw(img), SIZE, 185, border=8)
+    img.save(os.path.expanduser('~/.local/share/icons/coda.png'))
 
 # --- Notification ---
 def show_notification(title, message):
@@ -145,6 +181,134 @@ def show_notification(title, message):
         subprocess.Popen(['notify-send', '-t', '3000', title, message])
     except Exception:
         pass
+
+# --- Startup splash ---
+def show_splash():
+    try:
+        import gi
+        gi.require_version('Gtk', '3.0')
+        from gi.repository import Gtk, Gdk, GLib
+        import cairo
+    except Exception:
+        return
+
+    # 7×9 pixel grid, 2-px strokes — matches Ithaca bold bitmap style
+    PIXEL_SIZE = 23   # 20 * 1.15
+    LETTERS = {
+        'C': ['.#####.',
+              '#######',
+              '##.....',
+              '##.....',
+              '##.....',
+              '##.....',
+              '##.....',
+              '#######',
+              '.#####.'],
+        'O': ['.#####.',
+              '#######',
+              '##...##',
+              '##...##',
+              '##...##',
+              '##...##',
+              '##...##',
+              '#######',
+              '.#####.'],
+        'D': ['######.',
+              '#######',
+              '##...##',
+              '##...##',
+              '##...##',
+              '##...##',
+              '##...##',
+              '#######',
+              '######.'],
+        'A': ['..###..',
+              '.#####.',
+              '.##.##.',
+              '.##.##.',
+              '#######',
+              '##...##',
+              '##...##',
+              '##...##',
+              '##...##'],
+    }
+    word     = 'CODA'
+    LETTER_W = 7
+    LETTER_H = 9
+    GAP      = PIXEL_SIZE
+    PAD      = PIXEL_SIZE * 2
+
+    canvas_w = len(word) * LETTER_W * PIXEL_SIZE + (len(word) - 1) * GAP + PAD * 2
+    canvas_h = LETTER_H * PIXEL_SIZE + PAD * 2
+
+    win = Gtk.Window()
+    win.set_decorated(False)
+    win.set_app_paintable(True)
+    win.set_skip_taskbar_hint(True)
+    win.set_skip_pager_hint(True)
+    win.set_keep_above(True)
+    win.set_type_hint(Gdk.WindowTypeHint.SPLASHSCREEN)
+    win.set_default_size(canvas_w, canvas_h)
+    win.set_position(Gtk.WindowPosition.CENTER)
+
+    visual = win.get_screen().get_rgba_visual()
+    if visual:
+        win.set_visual(visual)
+
+    alpha_val = [0.0]
+
+    def on_draw(widget, cr):
+        cr.set_operator(cairo.OPERATOR_SOURCE)
+        cr.set_source_rgba(0, 0, 0, 0)
+        cr.paint()
+        cr.set_operator(cairo.OPERATOR_OVER)
+        x_off = PAD
+        for letter in word:
+            for row_i, row in enumerate(LETTERS.get(letter, [])):
+                for col_i, ch in enumerate(row):
+                    if ch == '#':
+                        cr.set_source_rgba(0, 0, 0, alpha_val[0])
+                        cr.rectangle(
+                            x_off + col_i * PIXEL_SIZE,
+                            PAD   + row_i * PIXEL_SIZE,
+                            PIXEL_SIZE - 2,
+                            PIXEL_SIZE - 2,
+                        )
+                        cr.fill()
+            x_off += LETTER_W * PIXEL_SIZE + GAP
+
+    win.connect('draw', on_draw)
+
+    FADE_MS  = 500
+    HOLD_MS  = 2500
+    INTERVAL = 33
+    phase    = ['fadein']
+    elapsed  = [0]
+
+    def tick():
+        elapsed[0] += INTERVAL
+        if phase[0] == 'fadein':
+            alpha_val[0] = min(1.0, elapsed[0] / FADE_MS)
+            if elapsed[0] >= FADE_MS:
+                phase[0] = 'hold'
+                elapsed[0] = 0
+        elif phase[0] == 'hold':
+            alpha_val[0] = 1.0
+            if elapsed[0] >= HOLD_MS:
+                phase[0] = 'fadeout'
+                elapsed[0] = 0
+        elif phase[0] == 'fadeout':
+            alpha_val[0] = max(0.0, 1.0 - elapsed[0] / FADE_MS)
+            if elapsed[0] >= FADE_MS:
+                win.destroy()
+                Gtk.main_quit()
+                return False
+        win.queue_draw()
+        return True
+
+    win.show_all()
+    GLib.timeout_add(INTERVAL, tick)
+    Gtk.main()
 
 # --- Badge monitor: updates icon every 3 s ---
 def start_badge_monitor(icon):
@@ -314,7 +478,8 @@ def main():
         sys.exit(0)
 
     write_lock()
-    show_notification("Coda is running", "Click the C icon in your taskbar to get started")
+    generate_desktop_icon()
+    show_splash()
 
     icon = pystray.Icon("Coda", create_icon(), "Coda", menu=build_menu())
 
