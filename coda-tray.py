@@ -63,9 +63,16 @@ def save_config(cfg):
 def get_active_provider():
     return load_config().get("provider", "Ollama (local)")
 
-# --- Terminal counter (marker files) ---
+# --- Terminal counter (live window list) ---
 def get_terminal_count():
-    return len(glob.glob(os.path.join(MARKER_DIR, 'term_*')))
+    try:
+        r = subprocess.run(['wmctrl', '-l'], capture_output=True, text=True)
+        return sum(1 for line in r.stdout.splitlines()
+                   if len(line.split(None, 3)) >= 4 and
+                   (line.split(None, 3)[3].startswith('Coda ·') or
+                    line.split(None, 3)[3].startswith('Coda 🤖')))
+    except Exception:
+        return 0
 
 def new_marker():
     os.makedirs(MARKER_DIR, exist_ok=True)
