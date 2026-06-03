@@ -236,6 +236,21 @@ class EmailApp:
         self.load_tab('unread')
         self.start_auto_refresh()
 
+    # ── scroll routing ─────────────────────────────────────────────
+
+    def _on_scroll(self, event, direction):
+        w = event.widget
+        # Tk class-binding already scrolled the widget before bind_all fires.
+        # If the widget still has room in this direction it absorbed the scroll —
+        # don't also move the outer canvas.  Only fall through when at the limit.
+        if isinstance(w, (tk.Listbox, tk.Text)):
+            first, last = w.yview()
+            if direction < 0 and first > 0:
+                return
+            if direction > 0 and last < 1:
+                return
+        self._canvas.yview_scroll(direction, 'units')
+
     # ── lifecycle ──────────────────────────────────────────────────
 
     def on_close(self):
@@ -296,8 +311,8 @@ class EmailApp:
         inner.bind('<Configure>', lambda e: self._canvas.configure(
             scrollregion=self._canvas.bbox('all')))
 
-        self._canvas.bind_all('<Button-4>', lambda e: self._canvas.yview_scroll(-1, 'units'))
-        self._canvas.bind_all('<Button-5>', lambda e: self._canvas.yview_scroll(1, 'units'))
+        self._canvas.bind_all('<Button-4>', lambda e: self._on_scroll(e, -1))
+        self._canvas.bind_all('<Button-5>', lambda e: self._on_scroll(e,  1))
 
         # Notebook — same widget as preferences
         self.nb = ttk.Notebook(inner)
