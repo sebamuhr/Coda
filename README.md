@@ -15,7 +15,8 @@ This is Coda — a coding assistant and email agent integrated directly into you
 | **System tray** | C icon lives in your taskbar, always one click away |
 | **Right-click → Call Coda** | Opens a coding session in any folder from the file manager |
 | **Launch Coda** | Folder picker from the tray to start a coding session anywhere |
-| **Terminal badge** | Red number on the C icon shows how many coding sessions are open |
+| **Startup splash** | Pixel-art "CODA" fades in and out when Coda starts |
+| **Terminal fill level** | C icon fills green → yellow → red as coding sessions open (up to 10) |
 | **Email Agent** | Reads inbox, writes replies, saves to Drafts or sends — all from one window |
 | **Model switcher** | Switch AI provider instantly from the tray, no need to open Preferences |
 | **Separate AI per task** | Use local Ollama for coding and Gemini free for email, or any combination |
@@ -184,6 +185,7 @@ The installer walks you through everything interactively:
 ```bash
 sudo apt install python3 python3-pip python3-tk python3-venv \
     python3-nautilus gir1.2-ayatanaappindicator3-0.1 \
+    python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
     wmctrl libnotify-bin
 /usr/bin/pip3 install pystray pillow --break-system-packages
 ```
@@ -199,11 +201,7 @@ pip install aider-chat
 **3. Download Coda**
 
 ```bash
-mkdir -p ~/Coda
-cd ~/Coda
-curl -fsSL https://raw.githubusercontent.com/sebamuhr/Coda/main/coda-tray.py -o coda-tray.py
-curl -fsSL https://raw.githubusercontent.com/sebamuhr/Coda/main/coda-email.py -o coda-email.py
-curl -fsSL https://raw.githubusercontent.com/sebamuhr/Coda/main/coda-preferences.py -o coda-preferences.py
+git clone https://github.com/sebamuhr/Coda.git ~/coda-project
 ```
 
 **4. Install the right-click extension**
@@ -224,8 +222,8 @@ cat > ~/.local/share/applications/coda.desktop << EOF
 [Desktop Entry]
 Type=Application
 Name=Coda
-Exec=/usr/bin/python3 $HOME/Coda/coda-tray.py
-Icon=$HOME/.local/share/icons/coda.svg
+Exec=/usr/bin/python3 $HOME/coda-project/coda-tray.py
+Icon=$HOME/.local/share/icons/coda.png
 Terminal=false
 Categories=Development;Utility;
 EOF
@@ -236,7 +234,7 @@ cp ~/.local/share/applications/coda.desktop ~/.config/autostart/coda.desktop
 **6. Launch and configure**
 
 ```bash
-/usr/bin/python3 ~/Coda/coda-tray.py &
+/usr/bin/python3 ~/coda-project/coda-tray.py &
 ```
 
 Click **C → Preferences** and fill in your AI provider and email settings.
@@ -269,7 +267,7 @@ Your desktop
 ## Tips
 
 - The **Call Coda** right-click option only appears when Coda is running — quit from the tray and it disappears automatically
-- The **terminal badge** (red number on the C icon) shows how many coding sessions are open — from both the tray and right-click
+- The **fill level** on the C icon shows how many coding sessions are open — green for few, yellow for several, red when busy (max 10)
 - **Save to Drafts** is safer for email — review in Gmail before sending
 - Use `/add .` in a coding session to let Coda see all your project files
 - Keep coding instructions focused — one task at a time works best with local models
