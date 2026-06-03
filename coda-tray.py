@@ -259,23 +259,43 @@ def build_menu():
 
 # --- Quit ---
 def quit_app(icon, query):
-    # Kill all Coda component processes regardless of how they were launched
-    subprocess.run(['pkill', '-f', 'coda-email.py'],       capture_output=True)
-    subprocess.run(['pkill', '-f', 'coda-preferences.py'], capture_output=True)
-    # Close gnome-terminal windows opened by Coda ("Coda · <provider>")
+    # Find all open Coda terminal windows (both title formats)
+    coda_wins = []
     try:
-        result = subprocess.run(['wmctrl', '-l'], capture_output=True, text=True)
-        for line in result.stdout.splitlines():
+        r = subprocess.run(['wmctrl', '-l'], capture_output=True, text=True)
+        for line in r.stdout.splitlines():
             parts = line.split(None, 3)
-            if len(parts) >= 4 and parts[3].startswith('Coda ·'):
-                subprocess.run(['wmctrl', '-ic', parts[0]], capture_output=True)
+            if len(parts) >= 4:
+                title = parts[3]
+                if title.startswith('Coda ·') or title.startswith('Coda 🤖'):
+                    coda_wins.append(parts[0])
     except Exception:
         pass
+
+    # Warn if terminals are open
+    if coda_wins:
+        import tkinter as tk
+        from tkinter import messagebox
+        _r = tk.Tk()
+        _r.withdraw()
+        n = len(coda_wins)
+        s = 's' if n != 1 else ''
+        ok = messagebox.askyesno(
+            "Quit Coda",
+            f"You have {n} Coda terminal{s} open.\n\nQuit anyway? All terminals will be closed.",
+            parent=_r)
+        _r.destroy()
+        if not ok:
+            return
+
+    # Kill everything — no survivors
+    subprocess.run(['pkill', '-f', 'coda-email.py'],       capture_output=True)
+    subprocess.run(['pkill', '-f', 'coda-preferences.py'], capture_output=True)
+    for wid in coda_wins:
+        subprocess.run(['wmctrl', '-ic', wid], capture_output=True)
     for f in [RUNNING_FILE, LOCK_FILE]:
-        try:
-            os.remove(f)
-        except Exception:
-            pass
+        try: os.remove(f)
+        except Exception: pass
     icon.stop()
     os.kill(os.getpid(), signal.SIGTERM)
 
