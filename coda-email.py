@@ -4,6 +4,7 @@ import imaplib
 import smtplib
 import email
 import email.utils
+import html as _html
 import requests
 import re
 import json
@@ -57,12 +58,17 @@ def decode_str(s):
             result += part
     return result
 
-def strip_html(html):
-    html = re.sub(r'<(style|script)[^>]*>.*?</(style|script)>', '', html, flags=re.DOTALL | re.IGNORECASE)
-    html = re.sub(r'<(br|p|div|tr|li)[^>]*>', '\n', html, flags=re.IGNORECASE)
-    html = re.sub(r'<[^>]+>', '', html)
-    html = html.replace('&nbsp;', ' ').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&quot;', '"')
-    return re.sub(r'\n{3,}', '\n\n', html).strip()
+def strip_html(h):
+    h = re.sub(r'<head\b[^>]*>.*?</head>', '', h, flags=re.DOTALL | re.IGNORECASE)
+    h = re.sub(r'<!--.*?-->', '', h, flags=re.DOTALL)
+    h = re.sub(r'<(style|script)\b[^>]*>.*?</(style|script)>', '', h, flags=re.DOTALL | re.IGNORECASE)
+    h = re.sub(r'(src|href)=["\']data:[^"\']*["\']', '', h, flags=re.IGNORECASE)
+    h = re.sub(r'<(br|p|div|tr|li|td|th|h[1-6]|blockquote|pre|ul|ol)\b[^>]*>', '\n', h, flags=re.IGNORECASE)
+    h = re.sub(r'<[^>]*>', '', h)
+    h = _html.unescape(h)
+    h = re.sub(r'[ \t\xa0]+', ' ', h)
+    h = re.sub(r'\n[ \t]*', '\n', h)
+    return re.sub(r'\n{3,}', '\n\n', h).strip()
 
 def get_body(msg):
     plain = html = ''
@@ -100,7 +106,8 @@ def fetch_emails(folder='INBOX', criteria='UNSEEN'):
     mail.login(cfg.get('EMAIL', ''), cfg.get('APP_PASSWORD', ''))
     mail.select(folder, readonly=True)
     _, data = mail.search(None, criteria)
-    ids = data[0].split()[-15:]
+    count = int(cfg.get('SYNC_COUNT', '15'))
+    ids = data[0].split()[-count:]
     result = []
     for eid in reversed(ids):
         _, msg_data = mail.fetch(eid, '(BODY.PEEK[])')
@@ -124,7 +131,8 @@ def fetch_drafts():
     mail.login(cfg.get('EMAIL', ''), cfg.get('APP_PASSWORD', ''))
     mail.select('"[Gmail]/Drafts"', readonly=True)
     _, data = mail.search(None, 'ALL')
-    ids = data[0].split()[-15:]
+    count = int(cfg.get('SYNC_COUNT', '15'))
+    ids = data[0].split()[-count:]
     result = []
     for eid in reversed(ids):
         _, msg_data = mail.fetch(eid, '(BODY.PEEK[])')

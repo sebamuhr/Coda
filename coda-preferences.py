@@ -65,6 +65,7 @@ def load_config():
         "user_name": "",
         "email_ai_provider": "Ollama (local)",
         "email_ai_key": "",
+        "email_sync_count": 15,
     }
     try:
         with open(CONFIG_FILE) as f:
@@ -88,6 +89,7 @@ def write_email_conf(cfg):
         f"PROVIDER={cfg.get('email_provider','')}",
         f"OLLAMA_IP={cfg.get('ollama_ip','')}",
         f"MODEL={cfg.get('model','')}",
+        f"SYNC_COUNT={cfg.get('email_sync_count', 15)}",
     ]
     os.makedirs(os.path.dirname(EMAIL_CONF), exist_ok=True)
     with open(EMAIL_CONF, 'w') as f:
@@ -267,22 +269,26 @@ class PreferencesApp:
         self.var_smtp = tk.StringVar()
         ttk.Entry(f, textvariable=self.var_smtp, width=30).grid(row=6, column=1, sticky='ew', pady=4)
 
-        ttk.Separator(f).grid(row=7, column=0, columnspan=2, sticky='ew', pady=10)
+        ttk.Label(f, text="Emails to sync:").grid(row=7, column=0, sticky='w', pady=4)
+        self.var_sync_count = tk.StringVar()
+        ttk.Entry(f, textvariable=self.var_sync_count, width=8).grid(row=7, column=1, sticky='w', pady=4)
 
-        ttk.Label(f, text="Email AI Provider", font=('', 11, 'bold')).grid(row=8, column=0, columnspan=2, sticky='w', pady=(0,6))
-        ttk.Label(f, text="Use which AI to write email replies:").grid(row=9, column=0, columnspan=2, sticky='w')
+        ttk.Separator(f).grid(row=8, column=0, columnspan=2, sticky='ew', pady=10)
 
-        ttk.Label(f, text="Provider:").grid(row=10, column=0, sticky='w', pady=4)
+        ttk.Label(f, text="Email AI Provider", font=('', 11, 'bold')).grid(row=9, column=0, columnspan=2, sticky='w', pady=(0,6))
+        ttk.Label(f, text="Use which AI to write email replies:").grid(row=10, column=0, columnspan=2, sticky='w')
+
+        ttk.Label(f, text="Provider:").grid(row=11, column=0, sticky='w', pady=4)
         self.var_email_ai = tk.StringVar()
         self.cb_email_ai = ttk.Combobox(f, textvariable=self.var_email_ai, values=PROVIDERS, state='readonly', width=28)
-        self.cb_email_ai.grid(row=10, column=1, sticky='ew', pady=4)
+        self.cb_email_ai.grid(row=11, column=1, sticky='ew', pady=4)
         self.cb_email_ai.bind('<<ComboboxSelected>>', self._on_email_ai_change)
 
         self.lbl_email_ai_key = ttk.Label(f, text="API Key:")
-        self.lbl_email_ai_key.grid(row=11, column=0, sticky='w', pady=4)
+        self.lbl_email_ai_key.grid(row=12, column=0, sticky='w', pady=4)
         self.var_email_ai_key = tk.StringVar()
         self.ent_email_ai_key = ttk.Entry(f, textvariable=self.var_email_ai_key, show='*', width=30)
-        self.ent_email_ai_key.grid(row=11, column=1, sticky='ew', pady=4)
+        self.ent_email_ai_key.grid(row=12, column=1, sticky='ew', pady=4)
 
         f.columnconfigure(1, weight=1)
 
@@ -339,6 +345,7 @@ class PreferencesApp:
         self.var_app_pw.set(c.get('app_password', ''))
         self.var_imap.set(c.get('imap_server', 'imap.gmail.com'))
         self.var_smtp.set(c.get('smtp_server', 'smtp.gmail.com'))
+        self.var_sync_count.set(str(c.get('email_sync_count', 15)))
 
         email_ai = c.get('email_ai_provider', 'Ollama (local)')
         self.var_email_ai.set(email_ai)
@@ -358,6 +365,13 @@ class PreferencesApp:
         except ValueError:
             messagebox.showerror("Error", "Refresh interval must be a number.")
             return
+        try:
+            sync_count = int(self.var_sync_count.get())
+            if sync_count < 1:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("Error", "Emails to sync must be a positive number.")
+            return
 
         self.cfg.update({
             "provider":          self.var_provider.get(),
@@ -374,6 +388,7 @@ class PreferencesApp:
             "user_name":         self.var_name.get().strip(),
             "alias":             self.var_alias.get().strip(),
             "refresh_minutes":   refresh,
+            "email_sync_count":  sync_count,
         })
 
         save_config(self.cfg)
