@@ -125,13 +125,13 @@ def create_icon(count=0):
         badge = str(min(count, 9))
         try:
             bfont = ImageFont.truetype(
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
         except Exception:
             bfont = ImageFont.load_default()
-        draw.ellipse([40, 40, 62, 62], fill='#e53935', outline='white', width=1)
+        draw.ellipse([34, 34, 62, 62], fill='#e53935', outline='white', width=2)
         bb = draw.textbbox((0, 0), badge, font=bfont)
         bw, bh = bb[2] - bb[0], bb[3] - bb[1]
-        draw.text((51 - bw / 2, 51 - bh / 2 - 1), badge, fill='white', font=bfont)
+        draw.text((48 - bw / 2, 48 - bh / 2), badge, fill='white', font=bfont)
 
     return img
 
