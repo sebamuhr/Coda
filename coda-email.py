@@ -31,7 +31,16 @@ def _cfg():
         pass
     return c
 
-PREFS_FILE = os.path.expanduser('~/.config/coda/window.json')
+PREFS_FILE    = os.path.expanduser('~/.config/coda/window.json')
+CONTACTS_FILE = os.path.expanduser('~/.config/coda/contacts.json')
+
+SAMPLE_EMAIL = (
+    "Hi,\n\n"
+    "Hope you're doing well! Just wanted to quickly touch base about the proposal "
+    "we discussed last week. Could you let me know if everything still looks good "
+    "on your end, and whether there's anything else you need from me before we move forward?\n\n"
+    "Thanks a lot,\nMike"
+)
 
 def apply_theme(root, setting='light'):
     actual = setting
@@ -87,6 +96,107 @@ def load_prefs():
             return json.load(f)
     except Exception:
         return {}
+
+# --- Contacts ---
+def load_contacts():
+    try:
+        with open(CONTACTS_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def save_contacts(contacts):
+    os.makedirs(os.path.dirname(CONTACTS_FILE), exist_ok=True)
+    with open(CONTACTS_FILE, 'w') as f:
+        json.dump(contacts, f, indent=2)
+
+def find_contact_prompt(sender_raw, contacts):
+    sender = sender_raw.lower()
+    for c in contacts:
+        for addr in c.get('emails', []):
+            if addr.lower().strip() in sender:
+                return c.get('prompt', '')
+    return ''
+
+# --- Autocomplete entry ---
+class AutocompleteEntry(ttk.Entry):
+    """ttk.Entry that pops up a filtered contacts dropdown while typing."""
+    def __init__(self, parent, **kwargs):
+        super().__init__(parent, **kwargs)
+        self._popup  = None
+        self._lb     = None
+        self._emails = []
+        self.bind('<KeyRelease>', self._on_key)
+        self.bind('<Down>',       self._to_lb)
+        self.bind('<FocusOut>',   lambda e: self.after(150, self._hide))
+
+    def _on_key(self, event):
+        if event.keysym in ('Escape', 'Return', 'Tab', 'Up', 'Down'):
+            if event.keysym == 'Escape':
+                self._hide()
+            return
+        q = self.get().strip().lower()
+        if not q:
+            self._hide()
+            return
+        seen, matches = set(), []
+        for c in load_contacts():
+            name  = c.get('name', '').lower()
+            label = c.get('name', '')
+            for em in c.get('emails', []):
+                if q in name or q in em.lower():
+                    key = em.lower()
+                    if key not in seen:
+                        seen.add(key)
+                        display = f'{label} <{em}>' if label else em
+                        matches.append((display, em))
+        if not matches:
+            self._hide()
+            return
+        self._show(matches)
+
+    def _show(self, matches):
+        if self._popup:
+            self._popup.destroy()
+        self._emails = [em for _, em in matches]
+        self.update_idletasks()
+        x = self.winfo_rootx()
+        y = self.winfo_rooty() + self.winfo_height()
+        w = max(self.winfo_width(), 280)
+        self._popup = tk.Toplevel(self)
+        self._popup.wm_overrideredirect(True)
+        self._popup.wm_attributes('-topmost', True)
+        self._lb = tk.Listbox(self._popup, font=('', 9), relief='solid',
+                              borderwidth=1, selectmode='single',
+                              height=min(len(matches), 7))
+        self._lb.pack(fill='both', expand=True)
+        for disp, _ in matches:
+            self._lb.insert('end', f'  {disp}')
+        self._lb.bind('<ButtonRelease-1>', self._pick)
+        self._lb.bind('<Return>',          self._pick)
+        self._lb.bind('<Escape>',          lambda e: self._hide())
+        self._lb.bind('<FocusOut>',        lambda e: self.after(150, self._hide))
+        h = self._lb.winfo_reqheight() + 4
+        self._popup.geometry(f'{w}x{h}+{x}+{y}')
+
+    def _to_lb(self, event):
+        if self._lb:
+            self._lb.focus_set()
+            if not self._lb.curselection():
+                self._lb.selection_set(0)
+
+    def _pick(self, event):
+        sel = self._lb.curselection() if self._lb else ()
+        if sel:
+            self.delete(0, 'end')
+            self.insert(0, self._emails[sel[0]])
+        self._hide()
+
+    def _hide(self):
+        if self._popup:
+            self._popup.destroy()
+            self._popup = None
+            self._lb    = None
 
 # --- Email utilities ---
 def decode_str(s):
@@ -221,18 +331,20 @@ def send_email(to, subject, body, selected_email=None):
         smtp.login(cfg.get('EMAIL', ''), cfg.get('APP_PASSWORD', ''))
         smtp.sendmail(cfg.get('EMAIL', ''), to, msg.as_bytes())
 
-def ask_coda(context, instruction, mode='reply'):
+def ask_coda(context, instruction, mode='reply', contact_prompt=''):
+    extra = (f"\n\nSPECIAL INSTRUCTIONS FOR THIS CONTACT:\n{contact_prompt}"
+             if contact_prompt else "")
     if mode == 'new':
         prompt = (
-            "You are an email assistant. Write a professional email based on the instruction below.\n\n"
-            f"INSTRUCTION:\n{instruction}\n\n"
+            "You are an email assistant. Write an email based on the instruction below.\n\n"
+            f"INSTRUCTION:\n{instruction}{extra}\n\n"
             "Write only the email body. No subject line. Sign off as Sebastian."
         )
     else:
         prompt = (
-            "You are an email assistant. Based on the email conversation below, write a professional reply.\n\n"
+            "You are an email assistant. Based on the email conversation below, write a reply.\n\n"
             f"EMAIL CONTEXT:\n{context}\n\n"
-            f"USER INSTRUCTION:\n{instruction}\n\n"
+            f"USER INSTRUCTION:\n{instruction}{extra}\n\n"
             "Write only the email body. No subject line. Sign off as Sebastian."
         )
     try:
@@ -370,6 +482,10 @@ class EmailApp:
         self.nb.add(new_frame, text='  ✉  New Email  ')
         self._make_new_email_panel(new_frame)
 
+        contacts_frame = ttk.Frame(self.nb, padding=4)
+        self.nb.add(contacts_frame, text='  👤  Contacts  ')
+        self._make_contacts_panel(contacts_frame)
+
         self.nb.bind('<<NotebookTabChanged>>', self._on_tab_change)
 
     def _make_email_panel(self, parent, key):
@@ -434,7 +550,7 @@ class EmailApp:
         fixed = ttk.Frame(parent, padding=(0, 4))
         fixed.pack(fill='x')
         ttk.Label(fixed, text="To:").grid(row=0, column=0, sticky='w', padx=(0, 8), pady=4)
-        self.new_to = ttk.Entry(fixed, font=('', 10))
+        self.new_to = AutocompleteEntry(fixed, font=('', 10))
         self.new_to.grid(row=0, column=1, sticky='ew', pady=4)
         ttk.Label(fixed, text="Subject:").grid(row=1, column=0, sticky='w', padx=(0, 8), pady=4)
         self.new_subject = ttk.Entry(fixed, font=('', 10))
@@ -477,7 +593,7 @@ class EmailApp:
 
     def _on_tab_change(self, event):
         idx  = self.nb.index(self.nb.select())
-        keys = list(self.TAB_KEYS) + ['new']
+        keys = list(self.TAB_KEYS) + ['new', 'contacts']
         self.current_tab_key = keys[idx]
         if self.current_tab_key in self.TAB_KEYS:
             self.load_tab(self.current_tab_key)
@@ -568,7 +684,8 @@ class EmailApp:
         ctx = f"From: {em['from']}\nSubject: {em['subject']}\n\n{em['body']}"
 
         def _do():
-            text = ask_coda(ctx, inst)
+            cp   = find_contact_prompt(em['from'], load_contacts())
+            text = ask_coda(ctx, inst, contact_prompt=cp)
             self.root.after(0, lambda: reply_area.delete('1.0', 'end'))
             self.root.after(0, lambda: reply_area.insert('end', text))
             self.root.after(0, lambda: self.set_status("Done!"))
@@ -613,12 +730,14 @@ class EmailApp:
         if not inst:
             messagebox.showwarning("No instruction", "Please describe what you want to say.")
             return
+        to = self.new_to.get().strip()
         self.new_reply_area.delete('1.0', 'end')
         self.new_reply_area.insert('end', 'Coda is writing your email…')
         self.set_status("Coda is thinking…")
 
         def _do():
-            text = ask_coda('', inst, mode='new')
+            cp   = find_contact_prompt(to, load_contacts()) if to else ''
+            text = ask_coda('', inst, mode='new', contact_prompt=cp)
             self.root.after(0, lambda: self.new_reply_area.delete('1.0', 'end'))
             self.root.after(0, lambda: self.new_reply_area.insert('end', text))
             self.root.after(0, lambda: self.set_status("Done!"))
@@ -657,6 +776,174 @@ class EmailApp:
                 messagebox.showinfo("Sent!", "Email sent!")
             except Exception as ex:
                 messagebox.showerror("Error", f"Could not send: {ex}")
+
+
+    # ── Contacts tab ───────────────────────────────────────────────
+
+    def _make_contacts_panel(self, parent):
+        self._contacts        = load_contacts()
+        self._cur_contact_idx = None
+
+        # Top bar: combobox selector + New / Delete
+        top = ttk.Frame(parent, padding=(0, 0, 0, 6))
+        top.pack(fill='x')
+        ttk.Label(top, text="Contact:").pack(side='left', padx=(0, 6))
+        self._contact_var   = tk.StringVar()
+        self._contact_combo = ttk.Combobox(top, textvariable=self._contact_var,
+                                           state='readonly', width=36)
+        self._contact_combo.pack(side='left', padx=(0, 8))
+        self._contact_combo.bind('<<ComboboxSelected>>', self._on_contact_select)
+        ttk.Button(top, text='+ New',  command=self._new_contact,    width=8).pack(side='left', padx=2)
+        ttk.Button(top, text='Delete', command=self._delete_contact, width=8).pack(side='left', padx=2)
+
+        ttk.Separator(parent).pack(fill='x', pady=(0, 6))
+
+        # Vertical split: form on top, preview on bottom
+        vpaned = tk.PanedWindow(parent, orient='vertical',
+                                sashwidth=5, sashrelief='raised')
+        vpaned.pack(fill='both', expand=True)
+
+        # ── Form ──
+        form = ttk.LabelFrame(vpaned, text="Contact rule", padding=8)
+        vpaned.add(form, minsize=150)
+
+        ttk.Label(form, text="Email addresses\n(comma-separated):").grid(row=0, column=0, sticky='w', pady=3)
+        self._c_emails = ttk.Entry(form, font=('', 10))
+        self._c_emails.grid(row=0, column=1, sticky='ew', pady=3)
+        self._c_emails.bind('<KeyRelease>', lambda e: self._update_name_state())
+
+        ttk.Label(form, text="Name (optional):").grid(row=1, column=0, sticky='w', pady=3)
+        self._c_name = ttk.Entry(form, font=('', 10))
+        self._c_name.grid(row=1, column=1, sticky='ew', pady=3)
+
+        ttk.Label(form, text="Custom prompt:").grid(row=2, column=0, sticky='nw', pady=3)
+        self._c_prompt = scrolledtext.ScrolledText(form, font=('', 10), wrap='word',
+                                                    relief='flat', borderwidth=1, height=4)
+        self._c_prompt.grid(row=2, column=1, sticky='nsew', pady=3)
+
+        ttk.Button(form, text='💾  Save Contact',
+                   command=self._save_contact, width=18).grid(
+                       row=3, column=1, sticky='e', pady=(6, 2))
+
+        form.columnconfigure(1, weight=1)
+        form.rowconfigure(2, weight=1)
+
+        # ── Preview ──
+        prev_frame = ttk.LabelFrame(vpaned, text="Example reply", padding=8)
+        vpaned.add(prev_frame, minsize=150)
+
+        ttk.Label(prev_frame, text="Test email:").pack(anchor='w')
+        self._c_test_in = scrolledtext.ScrolledText(prev_frame, font=('', 9), wrap='word',
+                                                     relief='flat', borderwidth=1, height=4)
+        self._c_test_in.insert('end', SAMPLE_EMAIL)
+        self._c_test_in.pack(fill='x', pady=(2, 6))
+
+        ttk.Button(prev_frame, text='✍  Generate Example',
+                   command=self._preview_contact, width=20).pack(anchor='w')
+
+        self._c_preview_out = scrolledtext.ScrolledText(prev_frame, font=('', 9), wrap='word',
+                                                         relief='flat', borderwidth=1)
+        self._c_preview_out.pack(fill='both', expand=True, pady=(6, 0))
+
+        self._refresh_contact_list()
+
+    def _refresh_contact_list(self):
+        labels = []
+        for c in self._contacts:
+            name  = c.get('name', '')
+            first = (c.get('emails') or [''])[0]
+            labels.append(f"{name} <{first}>" if name else first)
+        self._contact_combo['values'] = labels
+        if self._cur_contact_idx is not None and self._cur_contact_idx < len(labels):
+            self._contact_combo.current(self._cur_contact_idx)
+        elif not labels:
+            self._contact_combo.set('')
+
+    def _on_contact_select(self, event=None):
+        idx = self._contact_combo.current()
+        if idx < 0 or idx >= len(self._contacts):
+            return
+        self._cur_contact_idx = idx
+        c = self._contacts[idx]
+        self._c_emails.delete(0, 'end')
+        self._c_emails.insert(0, ', '.join(c.get('emails', [])))
+        self._c_name.delete(0, 'end')
+        self._c_name.insert(0, c.get('name', ''))
+        self._c_prompt.delete('1.0', 'end')
+        self._c_prompt.insert('end', c.get('prompt', ''))
+        self._update_name_state()
+
+    def _new_contact(self):
+        self._cur_contact_idx = None
+        self._contact_combo.set('')
+        self._c_emails.delete(0, 'end')
+        self._c_name.delete(0, 'end')
+        self._c_prompt.delete('1.0', 'end')
+        self._update_name_state()
+        self._c_emails.focus_set()
+
+    def _delete_contact(self):
+        if self._cur_contact_idx is None:
+            messagebox.showwarning("Nothing selected", "Select a contact first.")
+            return
+        c     = self._contacts[self._cur_contact_idx]
+        label = c.get('name') or (c.get('emails') or ['?'])[0]
+        if not messagebox.askyesno("Delete?", f"Delete contact: {label}?"):
+            return
+        del self._contacts[self._cur_contact_idx]
+        save_contacts(self._contacts)
+        self._cur_contact_idx = None
+        self._refresh_contact_list()
+        self._contact_combo.set('')
+        self._c_emails.delete(0, 'end')
+        self._c_name.delete(0, 'end')
+        self._c_prompt.delete('1.0', 'end')
+        self._update_name_state()
+
+    def _update_name_state(self):
+        count = len([e for e in self._c_emails.get().split(',') if e.strip()])
+        if count >= 2:
+            self._c_name.delete(0, 'end')
+            self._c_name.config(state='disabled')
+        else:
+            self._c_name.config(state='normal')
+
+    def _save_contact(self):
+        name       = self._c_name.get().strip()
+        emails_raw = self._c_emails.get().strip()
+        prompt     = self._c_prompt.get('1.0', 'end').strip()
+        if not emails_raw:
+            messagebox.showwarning("Missing email", "Enter at least one email address.")
+            return
+        emails = [e.strip() for e in emails_raw.split(',') if e.strip()]
+        entry  = {'name': name, 'emails': emails, 'prompt': prompt}
+        if self._cur_contact_idx is not None:
+            self._contacts[self._cur_contact_idx] = entry
+        else:
+            self._contacts.append(entry)
+            self._cur_contact_idx = len(self._contacts) - 1
+        save_contacts(self._contacts)
+        self._refresh_contact_list()
+        messagebox.showinfo("Saved", "Contact rule saved!")
+
+    def _preview_contact(self):
+        prompt = self._c_prompt.get('1.0', 'end').strip()
+        if not prompt:
+            messagebox.showwarning("No prompt", "Enter a custom prompt first.")
+            return
+        test_email = self._c_test_in.get('1.0', 'end').strip()
+        if not test_email:
+            messagebox.showwarning("No test email", "Enter a test email to try.")
+            return
+        self._c_preview_out.delete('1.0', 'end')
+        self._c_preview_out.insert('end', 'Generating example…')
+
+        def _do():
+            text = ask_coda(test_email, 'Write a reply', contact_prompt=prompt)
+            self.root.after(0, lambda: self._c_preview_out.delete('1.0', 'end'))
+            self.root.after(0, lambda: self._c_preview_out.insert('end', text))
+
+        threading.Thread(target=_do, daemon=True).start()
 
 
 def main():

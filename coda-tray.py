@@ -267,13 +267,15 @@ def show_splash():
             for row_i, row in enumerate(LETTERS.get(letter, [])):
                 for col_i, ch in enumerate(row):
                     if ch == '#':
+                        px = x_off + col_i * PIXEL_SIZE
+                        py = PAD   + row_i * PIXEL_SIZE
+                        pw = PIXEL_SIZE - 2
+                        ph = PIXEL_SIZE - 2
+                        cr.set_source_rgba(1, 1, 1, alpha_val[0])
+                        cr.rectangle(px - 1, py - 1, pw + 2, ph + 2)
+                        cr.fill()
                         cr.set_source_rgba(0, 0, 0, alpha_val[0])
-                        cr.rectangle(
-                            x_off + col_i * PIXEL_SIZE,
-                            PAD   + row_i * PIXEL_SIZE,
-                            PIXEL_SIZE - 2,
-                            PIXEL_SIZE - 2,
-                        )
+                        cr.rectangle(px, py, pw, ph)
                         cr.fill()
             x_off += LETTER_W * PIXEL_SIZE + GAP
 

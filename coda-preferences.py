@@ -385,9 +385,9 @@ class PreferencesApp:
         c = self.cfg
         self.var_provider.set(c.get('provider', 'Ollama (local)'))
         self.var_ip.set(c.get('ollama_ip', ''))
-        self.var_model.set(c.get('model', ''))
         self.var_key.set(c.get('api_key', ''))
         self._on_provider_change()
+        self.var_model.set(c.get('model', ''))
 
         self.var_email_prov.set(c.get('email_provider', 'Gmail'))
         self.var_email.set(c.get('email', ''))
