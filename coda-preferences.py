@@ -5,6 +5,8 @@ import json
 import os
 import shutil
 import subprocess
+import threading
+import urllib.request
 
 CONFIG_FILE = os.path.expanduser('~/.config/coda/config.json')
 EMAIL_CONF  = os.path.expanduser('~/.config/coda/email.conf')
@@ -327,24 +329,117 @@ class PreferencesApp:
         ttk.Label(f, text="Email AI", font=('', 11, 'bold')).grid(row=10, column=0, columnspan=2, sticky='w', pady=(0,6))
         ttk.Label(f, text="Model:").grid(row=11, column=0, sticky='w', pady=4)
         ttk.Label(f, text="coda2.0:3b (local)", font=('', 10, 'bold')).grid(row=11, column=1, sticky='w', pady=4)
-        ttk.Label(f, text="The email assistant always runs locally for privacy.\n"
-                          "Model is set up automatically during installation.",
-                  foreground='gray', font=('', 8)).grid(row=12, column=0, columnspan=2, sticky='w')
 
-        ttk.Separator(f).grid(row=14, column=0, columnspan=2, sticky='ew', pady=10)
+        ttk.Label(f, text="Status:").grid(row=12, column=0, sticky='w', pady=4)
+        self._model_status_lbl = ttk.Label(f, text="Checking...", foreground='gray')
+        self._model_status_lbl.grid(row=12, column=1, sticky='w', pady=4)
 
-        ttk.Label(f, text="Learning", font=('', 11, 'bold')).grid(row=15, column=0, columnspan=2, sticky='w', pady=(0, 6))
-        ttk.Label(f, text="When you edit Coda's reply before sending:").grid(row=16, column=0, columnspan=2, sticky='w')
+        self._pull_btn = ttk.Button(f, text='⬇  Pull Model',
+                                     command=self._pull_model, width=16)
+        self._pull_btn.grid(row=13, column=1, sticky='w', pady=(0, 4))
+        self._pull_btn.grid_remove()
 
-        ttk.Label(f, text="Learning mode:").grid(row=17, column=0, sticky='w', pady=4)
+        self._pull_progress = ttk.Label(f, text='', foreground='gray', font=('', 8))
+        self._pull_progress.grid(row=14, column=0, columnspan=2, sticky='w')
+        self._pull_progress.grid_remove()
+
+        ttk.Label(f, text="The email assistant always runs locally for privacy.",
+                  foreground='gray', font=('', 8)).grid(row=15, column=0, columnspan=2, sticky='w')
+
+        ttk.Separator(f).grid(row=16, column=0, columnspan=2, sticky='ew', pady=10)
+
+        ttk.Label(f, text="Learning", font=('', 11, 'bold')).grid(row=17, column=0, columnspan=2, sticky='w', pady=(0, 6))
+        ttk.Label(f, text="When you edit Coda's reply before sending:").grid(row=18, column=0, columnspan=2, sticky='w')
+
+        ttk.Label(f, text="Learning mode:").grid(row=19, column=0, sticky='w', pady=4)
         self.var_learning = tk.StringVar()
         ttk.Combobox(f, textvariable=self.var_learning, values=['Silent', 'Approval'],
-                     state='readonly', width=14).grid(row=17, column=1, sticky='w', pady=4)
+                     state='readonly', width=14).grid(row=19, column=1, sticky='w', pady=4)
         ttk.Label(f, text="Silent: saves corrections automatically\n"
                           "Approval: asks you before saving each correction",
-                  foreground='gray', font=('', 8)).grid(row=18, column=0, columnspan=2, sticky='w')
+                  foreground='gray', font=('', 8)).grid(row=20, column=0, columnspan=2, sticky='w')
 
         f.columnconfigure(1, weight=1)
+
+    def _ollama_base_url(self):
+        ip = self.var_ip.get().strip()
+        ip = (ip or 'localhost').replace('http://', '').replace('https://', '').strip('/') or 'localhost'
+        return f"http://{ip}:11434"
+
+    def _check_model_status(self):
+        self._model_status_lbl.config(text="Checking…", foreground='gray')
+        self._pull_btn.grid_remove()
+
+        def _check():
+            try:
+                url = self._ollama_base_url() + '/api/tags'
+                with urllib.request.urlopen(url, timeout=5) as r:
+                    data = json.loads(r.read())
+                found = any('coda2.0:3b' in m.get('name', '')
+                            for m in data.get('models', []))
+            except Exception:
+                found = False
+            if found:
+                self.root.after(0, lambda: self._model_status_lbl.config(
+                    text="✓ Ready", foreground='green'))
+                self.root.after(0, self._pull_btn.grid_remove)
+            else:
+                self.root.after(0, lambda: self._model_status_lbl.config(
+                    text="✗ Not installed", foreground='red'))
+                self.root.after(0, self._pull_btn.grid)
+
+        threading.Thread(target=_check, daemon=True).start()
+
+    def _pull_model(self):
+        self._pull_btn.config(state='disabled')
+        self._pull_progress.grid()
+
+        def _status(msg):
+            self.root.after(0, lambda: self._pull_progress.config(text=msg))
+
+        def _do():
+            base = self._ollama_base_url()
+            try:
+                _status("Downloading qwen2.5:3b — this may take a few minutes…")
+                data = json.dumps({'name': 'qwen2.5:3b', 'stream': False}).encode()
+                req  = urllib.request.Request(f"{base}/api/pull", data=data,
+                                              headers={'Content-Type': 'application/json'})
+                urllib.request.urlopen(req, timeout=600)
+
+                _status("Creating coda2.0:3b…")
+                modelfile = (
+                    'FROM qwen2.5:3b\n'
+                    'SYSTEM "You write emails on behalf of the user. '
+                    'Write naturally and concisely in their voice. '
+                    'Do not use robotic phrases or unnecessary pleasantries."'
+                )
+                data = json.dumps({'name': 'coda2.0:3b',
+                                   'modelfile': modelfile,
+                                   'stream': False}).encode()
+                req  = urllib.request.Request(f"{base}/api/create", data=data,
+                                              headers={'Content-Type': 'application/json'})
+                urllib.request.urlopen(req, timeout=180)
+
+                _status("Removing qwen2.5:3b…")
+                data = json.dumps({'name': 'qwen2.5:3b'}).encode()
+                req  = urllib.request.Request(f"{base}/api/delete", data=data,
+                                              headers={'Content-Type': 'application/json'},
+                                              method='DELETE')
+                try:
+                    urllib.request.urlopen(req, timeout=30)
+                except Exception:
+                    pass
+
+                _status("✓ coda2.0:3b installed!")
+                self.root.after(0, lambda: self._model_status_lbl.config(
+                    text="✓ Ready", foreground='green'))
+                self.root.after(0, self._pull_btn.grid_remove)
+
+            except Exception as e:
+                _status(f"✗ Error: {e}")
+                self.root.after(0, lambda: self._pull_btn.config(state='normal'))
+
+        threading.Thread(target=_do, daemon=True).start()
 
     def _on_email_provider_change(self, event=None):
         prov = self.var_email_prov.get()
@@ -482,6 +577,7 @@ class PreferencesApp:
         self.var_alias.set('coda')
         self.var_theme.set(c.get('theme', 'light').capitalize())
         self.var_learning.set(c.get('learning_mode', 'silent').capitalize())
+        self.root.after(400, self._check_model_status)
 
     # ── Save ──────────────────────────────────────────
     def _save(self):
