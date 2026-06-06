@@ -28,7 +28,7 @@ warn() { echo -e "    ${YELLOW}⚠  $1${NC}"; }
 ask()  { echo -e "${YELLOW}$1${NC}"; }
 hr()   { echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; }
 
-STEPS=7
+STEPS=8
 
 # ── Banner ────────────────────────────────────────────────────
 clear
@@ -238,8 +238,52 @@ for f in coda-tray.py coda-email.py coda-preferences.py; do
 done
 ok "All files saved to ~/Coda/"
 
-# ── 5: Configuration ───────────────────────────────────────────
-step 5 "Writing configuration..."
+# ── 5: Coda Email AI model ─────────────────────────────────────
+step 5 "Setting up Coda Email AI (coda2.0:3b)..."
+
+EMAIL_OLLAMA_HOST="${OLLAMA_IP:-localhost}"
+EMAIL_OLLAMA_URL="http://${EMAIL_OLLAMA_HOST}:11434"
+
+if curl -s --connect-timeout 5 "${EMAIL_OLLAMA_URL}" 2>/dev/null | grep -q "Ollama"; then
+    echo "    Pulling qwen2.5:3b — this may take a few minutes..."
+    curl -s -X POST "${EMAIL_OLLAMA_URL}/api/pull" \
+         -H "Content-Type: application/json" \
+         -d '{"name":"qwen2.5:3b","stream":false}' \
+         --max-time 600 > /dev/null
+    ok "qwen2.5:3b downloaded"
+
+    echo "    Creating coda2.0:3b..."
+    EMAIL_OLLAMA_URL="$EMAIL_OLLAMA_URL" python3 << 'PYEOF'
+import urllib.request, json, os, sys
+url = os.environ['EMAIL_OLLAMA_URL']
+modelfile = (
+    'FROM qwen2.5:3b\n'
+    'SYSTEM "You write emails on behalf of the user. '
+    'Write naturally and concisely in their voice. '
+    'Do not use robotic phrases or unnecessary pleasantries."'
+)
+data = json.dumps({'name': 'coda2.0:3b', 'modelfile': modelfile, 'stream': False}).encode()
+req = urllib.request.Request(f'{url}/api/create', data=data,
+                              headers={'Content-Type': 'application/json'})
+try:
+    urllib.request.urlopen(req, timeout=180)
+except Exception as e:
+    print(f"    Warning: {e}", file=sys.stderr)
+PYEOF
+    ok "coda2.0:3b created"
+
+    echo "    Removing qwen2.5:3b..."
+    curl -s -X DELETE "${EMAIL_OLLAMA_URL}/api/delete" \
+         -H "Content-Type: application/json" \
+         -d '{"name":"qwen2.5:3b"}' > /dev/null || true
+    ok "qwen2.5:3b removed — coda2.0:3b is ready"
+else
+    warn "Ollama not reachable at ${EMAIL_OLLAMA_URL} — skipping email model setup."
+    warn "Run later: ollama pull qwen2.5:3b && ollama create coda2.0:3b -f Modelfile"
+fi
+
+# ── 6: Configuration ───────────────────────────────────────────
+step 6 "Writing configuration..."
 mkdir -p "$CONFIG_DIR"
 
 # Write config.json via Python (handles special characters in API keys safely)
@@ -295,8 +339,8 @@ PYEOF
 
 ok "Configuration saved to ~/.config/coda/"
 
-# ── 6: Terminal alias ──────────────────────────────────────────
-step 6 "Setting up '${ALIAS_NAME}' terminal command..."
+# ── 7: Terminal alias ──────────────────────────────────────────
+step 7 "Setting up '${ALIAS_NAME}' terminal command..."
 
 # Remove any old coda alias lines
 sed -i '/# Coda - Local AI/d' ~/.bashrc 2>/dev/null || true
@@ -319,8 +363,8 @@ fi
 } >> ~/.bashrc
 ok "'${ALIAS_NAME}' command ready  (run: source ~/.bashrc)"
 
-# ── 7: Desktop integration ─────────────────────────────────────
-step 7 "Setting up desktop integration..."
+# ── 8: Desktop integration ─────────────────────────────────────
+step 8 "Setting up desktop integration..."
 
 # Nautilus right-click extension
 sudo mkdir -p /usr/share/nautilus-python/extensions/

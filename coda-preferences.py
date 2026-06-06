@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import json
 import os
+import shutil
 import subprocess
 
 CONFIG_FILE = os.path.expanduser('~/.config/coda/config.json')
@@ -108,6 +109,7 @@ def load_config():
         "email_ai_key": "",
         "email_sync_count": 15,
         "theme": "light",
+        "learning_mode": "silent",
     }
     try:
         with open(CONFIG_FILE) as f:
@@ -133,6 +135,7 @@ def write_email_conf(cfg):
         f"MODEL={cfg.get('model','')}",
         f"SYNC_COUNT={cfg.get('email_sync_count', 15)}",
         f"THEME={cfg.get('theme', 'light')}",
+        f"LEARNING_MODE={cfg.get('learning_mode', 'silent')}",
     ]
     os.makedirs(os.path.dirname(EMAIL_CONF), exist_ok=True)
     with open(EMAIL_CONF, 'w') as f:
@@ -204,7 +207,7 @@ class PreferencesApp:
         self.tab_email = ttk.Frame(nb, padding=16)
         self.tab_gen   = ttk.Frame(nb, padding=16)
 
-        nb.add(self.tab_ai,    text='  AI Provider  ')
+        nb.add(self.tab_ai,    text='  Call Coda  ')
         nb.add(self.tab_email, text='  Email  ')
         nb.add(self.tab_gen,   text='  General  ')
 
@@ -321,20 +324,25 @@ class PreferencesApp:
 
         ttk.Separator(f).grid(row=9, column=0, columnspan=2, sticky='ew', pady=10)
 
-        ttk.Label(f, text="Email AI Provider", font=('', 11, 'bold')).grid(row=10, column=0, columnspan=2, sticky='w', pady=(0,6))
-        ttk.Label(f, text="Use which AI to write email replies:").grid(row=11, column=0, columnspan=2, sticky='w')
+        ttk.Label(f, text="Email AI", font=('', 11, 'bold')).grid(row=10, column=0, columnspan=2, sticky='w', pady=(0,6))
+        ttk.Label(f, text="Model:").grid(row=11, column=0, sticky='w', pady=4)
+        ttk.Label(f, text="coda2.0:3b (local)", font=('', 10, 'bold')).grid(row=11, column=1, sticky='w', pady=4)
+        ttk.Label(f, text="The email assistant always runs locally for privacy.\n"
+                          "Model is set up automatically during installation.",
+                  foreground='gray', font=('', 8)).grid(row=12, column=0, columnspan=2, sticky='w')
 
-        ttk.Label(f, text="Provider:").grid(row=12, column=0, sticky='w', pady=4)
-        self.var_email_ai = tk.StringVar()
-        self.cb_email_ai = ttk.Combobox(f, textvariable=self.var_email_ai, values=PROVIDERS, state='readonly', width=28)
-        self.cb_email_ai.grid(row=12, column=1, sticky='ew', pady=4)
-        self.cb_email_ai.bind('<<ComboboxSelected>>', self._on_email_ai_change)
+        ttk.Separator(f).grid(row=14, column=0, columnspan=2, sticky='ew', pady=10)
 
-        self.lbl_email_ai_key = ttk.Label(f, text="API Key:")
-        self.lbl_email_ai_key.grid(row=13, column=0, sticky='w', pady=4)
-        self.var_email_ai_key = tk.StringVar()
-        self.ent_email_ai_key = ttk.Entry(f, textvariable=self.var_email_ai_key, show='*', width=30)
-        self.ent_email_ai_key.grid(row=13, column=1, sticky='ew', pady=4)
+        ttk.Label(f, text="Learning", font=('', 11, 'bold')).grid(row=15, column=0, columnspan=2, sticky='w', pady=(0, 6))
+        ttk.Label(f, text="When you edit Coda's reply before sending:").grid(row=16, column=0, columnspan=2, sticky='w')
+
+        ttk.Label(f, text="Learning mode:").grid(row=17, column=0, sticky='w', pady=4)
+        self.var_learning = tk.StringVar()
+        ttk.Combobox(f, textvariable=self.var_learning, values=['Silent', 'Approval'],
+                     state='readonly', width=14).grid(row=17, column=1, sticky='w', pady=4)
+        ttk.Label(f, text="Silent: saves corrections automatically\n"
+                          "Approval: asks you before saving each correction",
+                  foreground='gray', font=('', 8)).grid(row=18, column=0, columnspan=2, sticky='w')
 
         f.columnconfigure(1, weight=1)
 
@@ -343,17 +351,6 @@ class PreferencesApp:
         imap, smtp = EMAIL_IMAP.get(prov, ("", ""))
         self.var_imap.set(imap)
         self.var_smtp.set(smtp)
-
-    def _on_email_ai_change(self, event=None):
-        provider = self.var_email_ai.get()
-        if provider != "Ollama (local)":
-            messagebox.showwarning("Privacy Notice", EMAIL_PRIVACY_WARNING)
-        if provider == "Ollama (local)":
-            self.lbl_email_ai_key.grid_remove()
-            self.ent_email_ai_key.grid_remove()
-        else:
-            self.lbl_email_ai_key.grid()
-            self.ent_email_ai_key.grid()
 
     # ── General tab ───────────────────────────────────
     def _build_general_tab(self):
@@ -378,7 +375,91 @@ class PreferencesApp:
         ttk.Label(f, text="Restart Coda to apply a theme change", foreground='gray', font=('', 9)).grid(
             row=5, column=0, columnspan=2, sticky='w')
 
+        ttk.Separator(f).grid(row=6, column=0, columnspan=2, sticky='ew', pady=16)
+
+        ttk.Label(f, text="Uninstall", font=('', 11, 'bold')).grid(row=7, column=0, columnspan=2, sticky='w', pady=(0, 6))
+        ttk.Button(f, text='🗑  Uninstall Coda', command=self._uninstall,
+                   width=20).grid(row=8, column=0, sticky='w')
+        ttk.Label(f, text="Removes all Coda files, config, contacts,\nlearned data, shortcuts and the AI model.",
+                  foreground='gray', font=('', 8)).grid(row=9, column=0, columnspan=2, sticky='w', pady=(4, 0))
+
         f.columnconfigure(1, weight=1)
+
+    def _uninstall(self):
+        if not messagebox.askyesno(
+                "Uninstall Coda",
+                "This will permanently remove:\n\n"
+                "  •  All configuration and contacts\n"
+                "  •  Learned email preferences\n"
+                "  •  Desktop shortcuts and autostart\n"
+                "  •  The Coda app files\n"
+                "  •  The coda2.0:3b AI model\n\n"
+                "This cannot be undone. Are you sure?",
+                icon='warning'):
+            return
+        if not messagebox.askyesno(
+                "Really uninstall?",
+                "Last chance — remove Coda completely?",
+                icon='warning'):
+            return
+
+        # Remove Ollama model
+        try:
+            cfg = load_config()
+            ip = (cfg.get('ollama_ip', '') or 'localhost').replace('http://', '').replace('https://', '').strip('/') or 'localhost'
+            subprocess.run(
+                ['curl', '-s', '-X', 'DELETE',
+                 f'http://{ip}:11434/api/delete',
+                 '-H', 'Content-Type: application/json',
+                 '-d', '{"name":"coda2.0:3b"}'],
+                timeout=10, capture_output=True)
+        except Exception:
+            pass
+
+        # Remove config directory
+        shutil.rmtree(os.path.expanduser('~/.config/coda'), ignore_errors=True)
+
+        # Remove desktop / icon / autostart files
+        for path in [
+            '~/.config/autostart/coda.desktop',
+            '~/.local/share/applications/coda.desktop',
+            '~/Desktop/coda.desktop',
+            '~/.local/share/icons/coda.svg',
+        ]:
+            try:
+                os.remove(os.path.expanduser(path))
+            except Exception:
+                pass
+
+        # Remove .bashrc alias lines
+        try:
+            bashrc = os.path.expanduser('~/.bashrc')
+            with open(bashrc, 'r') as f:
+                lines = f.readlines()
+            lines = [l for l in lines
+                     if '# Coda' not in l and 'alias coda' not in l
+                     and 'coda-tray' not in l]
+            with open(bashrc, 'w') as f:
+                f.writelines(lines)
+        except Exception:
+            pass
+
+        # Remove Nautilus extension
+        try:
+            subprocess.run(
+                ['sudo', 'rm', '-f',
+                 '/usr/share/nautilus-python/extensions/coda_extension.py'],
+                timeout=10, capture_output=True)
+        except Exception:
+            pass
+
+        # Schedule app directory deletion + kill tray after this process exits
+        coda_dir = os.path.dirname(os.path.abspath(__file__))
+        cleanup = f'sleep 2 && rm -rf "{coda_dir}" && pkill -f coda-tray.py'
+        subprocess.Popen(['bash', '-c', cleanup])
+
+        messagebox.showinfo("Uninstalled", "Coda has been uninstalled.\nThe app will close now.")
+        self.root.destroy()
 
     # ── Load values ───────────────────────────────────
     def _load_values(self):
@@ -397,16 +478,10 @@ class PreferencesApp:
         self.var_sync_count.set(str(c.get('email_sync_count', 15)))
         self.var_refresh.set(str(c.get('refresh_minutes', 5)))
 
-        email_ai = c.get('email_ai_provider', 'Ollama (local)')
-        self.var_email_ai.set(email_ai)
-        self.var_email_ai_key.set(c.get('email_ai_key', ''))
-        if email_ai == "Ollama (local)":
-            self.lbl_email_ai_key.grid_remove()
-            self.ent_email_ai_key.grid_remove()
-
         self.var_name.set(c.get('user_name', ''))
         self.var_alias.set('coda')
         self.var_theme.set(c.get('theme', 'light').capitalize())
+        self.var_learning.set(c.get('learning_mode', 'silent').capitalize())
 
     # ── Save ──────────────────────────────────────────
     def _save(self):
@@ -435,13 +510,12 @@ class PreferencesApp:
             "app_password":      self.var_app_pw.get().strip(),
             "imap_server":       self.var_imap.get().strip(),
             "smtp_server":       self.var_smtp.get().strip(),
-            "email_ai_provider": self.var_email_ai.get(),
-            "email_ai_key":      self.var_email_ai_key.get().strip(),
             "user_name":         self.var_name.get().strip(),
             "alias":             "coda",
             "refresh_minutes":   refresh,
             "email_sync_count":  sync_count,
             "theme":             self.var_theme.get().lower(),
+            "learning_mode":     self.var_learning.get().lower(),
         })
 
         save_config(self.cfg)
