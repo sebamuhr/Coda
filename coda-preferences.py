@@ -400,12 +400,27 @@ class PreferencesApp:
         def _do():
             base = self._ollama_base_url()
             try:
-                _status("Downloading qwen2.5:3b — this may take a few minutes…")
-                data = json.dumps({'name': 'qwen2.5:3b', 'stream': False}).encode()
+                # ── Pull qwen2.5:3b (streaming keeps connection alive + shows %) ──
+                _status("Downloading qwen2.5:3b…")
+                data = json.dumps({'name': 'qwen2.5:3b', 'stream': True}).encode()
                 req  = urllib.request.Request(f"{base}/api/pull", data=data,
                                               headers={'Content-Type': 'application/json'})
-                urllib.request.urlopen(req, timeout=600)
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    while True:
+                        line = resp.readline()
+                        if not line:
+                            break
+                        try:
+                            obj   = json.loads(line)
+                            total = obj.get('total', 0)
+                            done  = obj.get('completed', 0)
+                            if total and done:
+                                pct = int(done / total * 100)
+                                _status(f"Downloading qwen2.5:3b… {pct}%")
+                        except Exception:
+                            pass
 
+                # ── Create coda2.0:3b ──────────────────────────────────────────
                 _status("Creating coda2.0:3b…")
                 modelfile = (
                     'FROM qwen2.5:3b\n'
@@ -415,11 +430,14 @@ class PreferencesApp:
                 )
                 data = json.dumps({'name': 'coda2.0:3b',
                                    'modelfile': modelfile,
-                                   'stream': False}).encode()
+                                   'stream': True}).encode()
                 req  = urllib.request.Request(f"{base}/api/create", data=data,
                                               headers={'Content-Type': 'application/json'})
-                urllib.request.urlopen(req, timeout=180)
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    while resp.readline():
+                        pass
 
+                # ── Remove qwen2.5:3b ──────────────────────────────────────────
                 _status("Removing qwen2.5:3b…")
                 data = json.dumps({'name': 'qwen2.5:3b'}).encode()
                 req  = urllib.request.Request(f"{base}/api/delete", data=data,
@@ -430,13 +448,13 @@ class PreferencesApp:
                 except Exception:
                     pass
 
-                _status("✓ coda2.0:3b installed!")
+                _status("✓ coda2.0:3b ready!")
                 self.root.after(0, lambda: self._model_status_lbl.config(
                     text="✓ Ready", foreground='green'))
                 self.root.after(0, self._pull_btn.grid_remove)
 
             except Exception as e:
-                _status(f"✗ Error: {e}")
+                _status(f"✗ {e}")
                 self.root.after(0, lambda: self._pull_btn.config(state='normal'))
 
         threading.Thread(target=_do, daemon=True).start()
