@@ -233,11 +233,12 @@ ok "pystray and pillow installed"
 
 # ── 3: Aider ───────────────────────────────────────────────────
 step 3 "Setting up Aider  (the coding engine)..."
+echo -e "  ${GRAY}This may take a few minutes…${NC}"
 if [ ! -d "$HOME/aider-env" ]; then
     python3 -m venv ~/aider-env
 fi
 source ~/aider-env/bin/activate
-pip install aider-chat -q 2>/dev/null
+pip install aider-chat
 deactivate
 ok "Aider installed in ~/aider-env"
 
