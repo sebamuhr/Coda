@@ -180,7 +180,7 @@ if [ "${SETUP_EMAIL,,}" = "y" ]; then
     ask "App Password:"
     echo -e "  ${GRAY}16 characters — get it at myaccount.google.com/apppasswords${NC}"
     echo -e "  ${GRAY}(requires 2-Step Verification to be enabled on your Google account)${NC}"
-    read -s -p "  App Password: " APP_PASSWORD
+    read -p "  App Password: " APP_PASSWORD
     echo ""
 fi
 
