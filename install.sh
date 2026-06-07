@@ -6,6 +6,8 @@
 
 set -e
 
+OS=$(uname -s)   # Linux or Darwin
+
 REPO="https://raw.githubusercontent.com/sebamuhr/Coda/main"
 CODA_DIR="$HOME/Coda"
 CONFIG_DIR="$HOME/.config/coda"
@@ -25,6 +27,7 @@ ok()   { echo -e "    ${GREEN}✓  $1${NC}"; }
 warn() { echo -e "    ${YELLOW}⚠  $1${NC}"; }
 ask()  { echo -e "${YELLOW}$1${NC}"; }
 hr()   { echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; }
+lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
 STEPS=8
 
@@ -82,7 +85,7 @@ case "$PROVIDER_CHOICE" in
     else
         warn "Could not reach Ollama — check it is running and accessible."
         read -p "  Continue anyway? [y/N]: " CONT
-        [ "${CONT,,}" = "y" ] || exit 1
+        [ "$(lc "$CONT")" = "y" ] || exit 1
     fi
 
     echo ""
@@ -172,7 +175,7 @@ EMAIL_PROVIDER="Gmail"
 IMAP_SERVER="imap.gmail.com"
 SMTP_SERVER="smtp.gmail.com"
 
-if [ "${SETUP_EMAIL,,}" = "y" ]; then
+if [ "$(lc "$SETUP_EMAIL")" = "y" ]; then
     echo ""
     ask "Email address:"
     read -p "  Email: " EMAIL_ADDR
@@ -199,7 +202,7 @@ echo ""
 hr
 echo ""
 read -p "  Proceed? [Y/n]: " PROCEED
-[ "${PROCEED,,}" = "n" ] && { echo "Aborted."; exit 0; }
+[ "$(lc "$PROCEED")" = "n" ] && { echo "Aborted."; exit 0; }
 echo ""
 
 # ══════════════════════════════════════════════════════════════
@@ -208,15 +211,23 @@ echo ""
 
 # ── 1: System packages ─────────────────────────────────────────
 step 1 "Installing system packages..."
-sudo apt-get install -y -q \
-    python3 python3-pip python3-tk python3-venv \
-    python3-nautilus gir1.2-ayatanaappindicator3-0.1 \
-    wmctrl libnotify-bin 2>/dev/null || true
+if [ "$OS" = "Darwin" ]; then
+    if ! command -v brew &>/dev/null; then
+        warn "Homebrew not found — install it from brew.sh, then re-run this installer."
+        exit 1
+    fi
+    brew install python-tk 2>/dev/null || true
+else
+    sudo apt-get install -y -q \
+        python3 python3-pip python3-tk python3-venv \
+        python3-nautilus gir1.2-ayatanaappindicator3-0.1 \
+        wmctrl libnotify-bin 2>/dev/null || true
+fi
 ok "Done"
 
 # ── 2: Python packages ─────────────────────────────────────────
 step 2 "Installing Python packages..."
-/usr/bin/pip3 install pystray pillow --break-system-packages -q 2>/dev/null
+python3 -m pip install pystray pillow -q 2>/dev/null
 ok "pystray and pillow installed"
 
 # ── 3: Aider ───────────────────────────────────────────────────
@@ -268,7 +279,11 @@ while true; do
         echo "  What would you like to do?"
         echo "    1) Try a different IP"
         echo "    2) Retry same address"
-        echo "    3) Install Ollama on this machine  (free, runs locally)"
+        if [ "$OS" = "Darwin" ]; then
+            echo "    3) Install Ollama  (download from ollama.com and run the macOS app)"
+        else
+            echo "    3) Install Ollama on this machine  (free, runs locally)"
+        fi
         echo "    4) Skip — set up later from Preferences → Email → Pull Model"
         echo ""
         read -p "  Choice [1]: " RETRY_CHOICE
@@ -282,6 +297,11 @@ while true; do
                 ;;
             2) ;;
             3)
+                if [ "$OS" = "Darwin" ]; then
+                    warn "Download and install Ollama from ollama.com, then re-run this installer."
+                    EMAIL_OLLAMA_IP="localhost"
+                    break
+                fi
                 echo ""
                 echo "  Installing Ollama..."
                 curl -fsSL https://ollama.com/install.sh | sh
@@ -444,9 +464,15 @@ ok "Configuration saved to ~/.config/coda/"
 # ── 7: Terminal alias ──────────────────────────────────────────
 step 7 "Setting up '${ALIAS_NAME}' terminal command..."
 
-# Remove any old coda alias lines
-sed -i '/# Coda - Local AI/d' ~/.bashrc 2>/dev/null || true
-sed -i '/alias coda/d' ~/.bashrc 2>/dev/null || true
+if [ "$OS" = "Darwin" ]; then
+    RC_FILE="$HOME/.zshrc"
+    sed -i '' '/# Coda - Local AI/d' "$RC_FILE" 2>/dev/null || true
+    sed -i '' '/alias coda/d'        "$RC_FILE" 2>/dev/null || true
+else
+    RC_FILE="$HOME/.bashrc"
+    sed -i '/# Coda - Local AI/d' "$RC_FILE" 2>/dev/null || true
+    sed -i '/alias coda/d'        "$RC_FILE" 2>/dev/null || true
+fi
 
 if [ "$PROVIDER" = "Ollama (local)" ]; then
     ALIAS_CMD="source ~/aider-env/bin/activate && OLLAMA_API_BASE=http://${OLLAMA_IP}:11434 aider --model ollama/${MODEL}"
@@ -462,22 +488,53 @@ fi
     echo ""
     echo "# Coda - Local AI coding assistant"
     printf "alias %s='%s'\n" "$ALIAS_NAME" "$ALIAS_CMD"
-} >> ~/.bashrc
-ok "'${ALIAS_NAME}' command ready  (run: source ~/.bashrc)"
+} >> "$RC_FILE"
+
+if [ "$OS" = "Darwin" ]; then
+    ok "'${ALIAS_NAME}' command ready  (run: source ~/.zshrc)"
+else
+    ok "'${ALIAS_NAME}' command ready  (run: source ~/.bashrc)"
+fi
 
 # ── 8: Desktop integration ─────────────────────────────────────
 step 8 "Setting up desktop integration..."
 
-# Nautilus right-click extension
-mkdir -p "$HOME/.local/share/nautilus-python/extensions/"
-curl -fsSL "${REPO}/coda_extension.py" \
-     -o "$HOME/.local/share/nautilus-python/extensions/coda_extension.py" -q
-nautilus -q 2>/dev/null || true
-ok "Right-click 'Call Coda' installed"
+if [ "$OS" = "Darwin" ]; then
+    PLIST_DIR="$HOME/Library/LaunchAgents"
+    mkdir -p "$PLIST_DIR"
+    PYTHON_BIN=$(which python3)
+    cat > "$PLIST_DIR/com.coda.plist" << PLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.coda.tray</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${PYTHON_BIN}</string>
+        <string>${CODA_DIR}/coda-tray.py</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <false/>
+</dict>
+</plist>
+PLISTEOF
+    launchctl load "$PLIST_DIR/com.coda.plist" 2>/dev/null || true
+    ok "LaunchAgent installed — Coda will start on login"
+else
+    # Nautilus right-click extension
+    mkdir -p "$HOME/.local/share/nautilus-python/extensions/"
+    curl -fsSL "${REPO}/coda_extension.py" \
+         -o "$HOME/.local/share/nautilus-python/extensions/coda_extension.py" -q
+    nautilus -q 2>/dev/null || true
+    ok "Right-click 'Call Coda' installed"
 
-# Icon
-mkdir -p ~/.local/share/icons
-cat > ~/.local/share/icons/coda.svg << 'SVGEOF'
+    # Icon
+    mkdir -p ~/.local/share/icons
+    cat > ~/.local/share/icons/coda.svg << 'SVGEOF'
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
   <rect width="100" height="100" rx="20" fill="#ffffff" stroke="#000000" stroke-width="4"/>
   <text x="50" y="72" font-family="DejaVu Sans,sans-serif" font-size="72"
@@ -485,9 +542,9 @@ cat > ~/.local/share/icons/coda.svg << 'SVGEOF'
 </svg>
 SVGEOF
 
-# App launcher entry
-mkdir -p ~/.local/share/applications
-cat > ~/.local/share/applications/coda.desktop << DESKEOF
+    # App launcher entry
+    mkdir -p ~/.local/share/applications
+    cat > ~/.local/share/applications/coda.desktop << DESKEOF
 [Desktop Entry]
 Version=1.0
 Type=Application
@@ -499,13 +556,13 @@ Terminal=false
 Categories=Development;Utility;
 StartupNotify=false
 DESKEOF
-chmod +x ~/.local/share/applications/coda.desktop
-[ -d ~/Desktop ] && cp ~/.local/share/applications/coda.desktop ~/Desktop/ \
-    && chmod +x ~/Desktop/coda.desktop
+    chmod +x ~/.local/share/applications/coda.desktop
+    [ -d ~/Desktop ] && cp ~/.local/share/applications/coda.desktop ~/Desktop/ \
+        && chmod +x ~/Desktop/coda.desktop
 
-# Autostart on login
-mkdir -p ~/.config/autostart
-cat > ~/.config/autostart/coda.desktop << AUTOEOF
+    # Autostart on login
+    mkdir -p ~/.config/autostart
+    cat > ~/.config/autostart/coda.desktop << AUTOEOF
 [Desktop Entry]
 Type=Application
 Name=Coda
@@ -515,8 +572,9 @@ NoDisplay=false
 X-GNOME-Autostart-enabled=true
 AUTOEOF
 
-update-desktop-database ~/.local/share/applications/ 2>/dev/null || true
-ok "App launcher entry, desktop icon and autostart on login ready"
+    update-desktop-database ~/.local/share/applications/ 2>/dev/null || true
+    ok "App launcher entry, desktop icon and autostart on login ready"
+fi
 
 # ══════════════════════════════════════════════════════════════
 #  DONE
@@ -528,16 +586,26 @@ hr
 echo ""
 echo "  How to use:"
 echo ""
-echo -e "  ${CYAN}System tray:${NC}"
-echo "    Search 'Coda' in your app launcher and click it."
-echo "    The C icon appears in your taskbar — click it to code or check email."
-echo ""
-echo -e "  ${CYAN}Right-click any project folder:${NC}"
-echo "    Open file manager → right-click a folder → Call Coda"
-echo ""
-echo -e "  ${CYAN}Terminal:${NC}"
-echo "    source ~/.bashrc"
-echo "    cd ~/my-project && ${ALIAS_NAME}"
+if [ "$OS" = "Darwin" ]; then
+    echo -e "  ${CYAN}System tray:${NC}"
+    echo "    Coda starts automatically on login."
+    echo "    The C icon appears in your menu bar — click it to code or check email."
+    echo ""
+    echo -e "  ${CYAN}Terminal:${NC}"
+    echo "    source ~/.zshrc"
+    echo "    cd ~/my-project && ${ALIAS_NAME}"
+else
+    echo -e "  ${CYAN}System tray:${NC}"
+    echo "    Search 'Coda' in your app launcher and click it."
+    echo "    The C icon appears in your taskbar — click it to code or check email."
+    echo ""
+    echo -e "  ${CYAN}Right-click any project folder:${NC}"
+    echo "    Open file manager → right-click a folder → Call Coda"
+    echo ""
+    echo -e "  ${CYAN}Terminal:${NC}"
+    echo "    source ~/.bashrc"
+    echo "    cd ~/my-project && ${ALIAS_NAME}"
+fi
 echo ""
 echo -e "  ${CYAN}Change settings anytime:${NC}"
 echo "    C icon in taskbar → Preferences"
@@ -545,9 +613,9 @@ echo ""
 hr
 echo ""
 read -p "  Start Coda now? [Y/n]: " START_NOW
-if [ "${START_NOW,,}" != "n" ]; then
-    /usr/bin/python3 "${CODA_DIR}/coda-tray.py" &
+if [ "$(lc "$START_NOW")" != "n" ]; then
+    python3 "${CODA_DIR}/coda-tray.py" &
     echo ""
-    ok "Coda is running — look for the C icon in your taskbar!"
+    ok "Coda is running — look for the C icon in your menu bar!"
 fi
 echo ""

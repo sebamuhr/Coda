@@ -4,7 +4,7 @@
 
 I was fed up with AI subscriptions and hitting limits constantly. So I built my own offline AI assistant that lives on my machine, knows my files, writes my emails, and costs nothing to run.
 
-This is Coda — a coding assistant and email agent integrated directly into your Linux desktop, sitting quietly in your system tray until you need it.
+This is Coda — a coding assistant and email agent that sits quietly in your system tray (Linux) or menu bar (macOS) until you need it.
 
 ---
 
@@ -12,7 +12,7 @@ This is Coda — a coding assistant and email agent integrated directly into you
 
 | Feature | Description |
 |---|---|
-| **System tray** | C icon lives in your taskbar, always one click away |
+| **System tray** | C icon lives in your taskbar (Linux) or menu bar (macOS), always one click away |
 | **Right-click → Call Coda** | Opens a coding session in any folder from the file manager |
 | **Launch Coda** | Folder picker from the tray to start a coding session anywhere |
 | **Startup splash** | Pixel-art "CODA" fades in and out when Coda starts |
@@ -151,23 +151,24 @@ Get a free Gemini API key at [aistudio.google.com](https://aistudio.google.com).
 
 ## Requirements
 
-- Linux — Debian/Ubuntu based (tested on Zorin OS and Ubuntu)
+- **Linux** — Debian/Ubuntu based (tested on Zorin OS and Ubuntu)
+- **macOS** — Ventura or later
 - Python 3
-- Nautilus file manager (GNOME)
 - For local models: [Ollama](https://ollama.ai) running locally or on a server on your network
 - For email: Gmail App Password, or any IMAP/SMTP provider
+- Linux only: Nautilus file manager (GNOME) for the right-click extension
 
 ---
 
 ## Installation
 
-### One-line install
+### One-line install (Linux and macOS)
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/sebamuhr/Coda/main/install.sh)
 ```
 
-The installer walks you through everything interactively:
+The installer detects your platform and walks you through everything interactively:
 
 1. Choose your AI provider (Ollama, Gemini, Claude, OpenAI)
 2. Enter your server IP or API key
@@ -175,10 +176,16 @@ The installer walks you through everything interactively:
 4. Set up the Email Agent (optional)
 5. Everything is configured and running
 
+**macOS notes:**
+- Requires [Homebrew](https://brew.sh) — the installer will check for it
+- Ollama on macOS is a native app — download it from [ollama.com](https://ollama.com) before running the installer if you want local models
+- The alias is written to `~/.zshrc`
+- Coda starts on login via a LaunchAgent (`~/Library/LaunchAgents/com.coda.plist`)
+
 ### Manual install
 
 <details>
-<summary>Click to expand manual installation steps</summary>
+<summary>Linux — click to expand</summary>
 
 **1. Install system dependencies**
 
@@ -187,7 +194,7 @@ sudo apt install python3 python3-pip python3-tk python3-venv \
     python3-nautilus gir1.2-ayatanaappindicator3-0.1 \
     python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
     wmctrl libnotify-bin
-/usr/bin/pip3 install pystray pillow --break-system-packages
+python3 -m pip install pystray pillow
 ```
 
 **2. Install Aider**
@@ -241,6 +248,63 @@ Click **C → Preferences** and fill in your AI provider and email settings.
 
 </details>
 
+<details>
+<summary>macOS — click to expand</summary>
+
+**1. Install dependencies**
+
+```bash
+brew install python-tk
+python3 -m pip install pystray pillow
+```
+
+**2. Install Aider**
+
+```bash
+python3 -m venv ~/aider-env
+source ~/aider-env/bin/activate
+pip install aider-chat
+```
+
+**3. Download Coda**
+
+```bash
+git clone https://github.com/sebamuhr/Coda.git ~/coda-project
+```
+
+**4. Create a LaunchAgent for autostart**
+
+```bash
+mkdir -p ~/Library/LaunchAgents
+cat > ~/Library/LaunchAgents/com.coda.plist << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.coda.tray</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$(which python3)</string>
+        <string>$HOME/coda-project/coda-tray.py</string>
+    </array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><false/>
+</dict>
+</plist>
+EOF
+launchctl load ~/Library/LaunchAgents/com.coda.plist
+```
+
+**5. Launch and configure**
+
+```bash
+python3 ~/coda-project/coda-tray.py &
+```
+
+Click **C → Preferences** and fill in your AI provider and email settings.
+
+</details>
+
 ---
 
 ## How it all fits together
@@ -279,7 +343,7 @@ Your desktop
 
 I'm a no-code developer. I started with Cursor AI and loved it — but the monthly subscription adds up fast, especially when you hit the limits. I wanted something I owned, something offline, something that didn't send my code to servers I don't control.
 
-Coda is what I built. It's [Aider](https://aider.chat) + [Ollama](https://ollama.ai) + Python glue that integrates the whole thing into your Linux desktop. A coding assistant, an email agent, a model switcher, a preferences window — all in one system tray icon that starts with your computer.
+Coda is what I built. It's [Aider](https://aider.chat) + [Ollama](https://ollama.ai) + Python glue that integrates the whole thing into your desktop. A coding assistant, an email agent, a model switcher, a preferences window — all in one system tray icon that starts with your computer.
 
 Nothing fancy. Just works.
 
@@ -290,7 +354,7 @@ Nothing fancy. Just works.
 Pull requests welcome! Ideas for improvement:
 
 - Support for other file managers (Dolphin, Thunar)
-- Windows / Mac support
+- Windows support
 - More email providers and OAuth support
 - Calendar integration
 - Multiple Ollama server profiles

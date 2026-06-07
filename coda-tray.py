@@ -7,10 +7,14 @@ import glob
 import time
 import signal
 import threading
+import tempfile
+import platform
 import pystray
 from pystray import MenuItem as item, Menu
 import colorsys
 from PIL import Image, ImageDraw, ImageFont
+
+PLATFORM = platform.system()  # 'Linux' or 'Darwin'
 
 # --- Paths ---
 CODA_DIR     = os.path.expanduser('~/coda-project')
@@ -64,8 +68,13 @@ def save_config(cfg):
 def get_active_provider():
     return load_config().get("provider", "Ollama (local)")
 
-# --- Terminal counter (live window list) ---
+# --- Terminal counter ---
 def get_terminal_count():
+    if PLATFORM == 'Darwin':
+        try:
+            return len(glob.glob(os.path.join(MARKER_DIR, 'term_*')))
+        except Exception:
+            return 0
     try:
         r = subprocess.run(['wmctrl', '-l'], capture_output=True, text=True)
         return sum(1 for line in r.stdout.splitlines()
@@ -135,20 +144,17 @@ def create_icon(count=0):
     SIZE = 64
     t = min(max(count, 0), 10) / 10.0
 
-    # White base circle (interior only, border drawn later)
     base = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
     ImageDraw.Draw(base).ellipse([2, 2, 62, 62], fill='white')
 
     if t > 0:
-        # Hue sweeps from green (120°) to red (0°) as count rises
         hue = (1 - t) * 120 / 360.0
         rc, gc, bc = colorsys.hsv_to_rgb(hue, 0.90, 0.88)
         fill_color = (int(rc * 255), int(gc * 255), int(bc * 255), 255)
 
-        fill_h   = max(6, int(60 * t))   # height of fill in pixels
-        fill_top = 62 - fill_h            # y where fill starts from top
+        fill_h   = max(6, int(60 * t))
+        fill_top = 62 - fill_h
 
-        # Colored circle, top portion cleared to transparent
         overlay = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
         ov = ImageDraw.Draw(overlay)
         ov.ellipse([2, 2, 62, 62], fill=fill_color)
@@ -159,7 +165,6 @@ def create_icon(count=0):
     else:
         img = base
 
-    # Border + C always on top
     draw = ImageDraw.Draw(img)
     draw.ellipse([1, 1, 63, 63], outline='black', width=2)
     font = _ithaca(54)
@@ -170,6 +175,8 @@ def create_icon(count=0):
     return img
 
 def generate_desktop_icon():
+    if PLATFORM == 'Darwin':
+        return
     SIZE = 256
     img  = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
     _draw_C(ImageDraw.Draw(img), SIZE, 185, border=8)
@@ -178,12 +185,127 @@ def generate_desktop_icon():
 # --- Notification ---
 def show_notification(title, message):
     try:
-        subprocess.Popen(['notify-send', '-t', '3000', title, message])
+        if PLATFORM == 'Darwin':
+            t = title.replace('"', '\\"')
+            m = message.replace('"', '\\"')
+            subprocess.Popen(['osascript', '-e',
+                f'display notification "{m}" with title "{t}"'])
+        else:
+            subprocess.Popen(['notify-send', '-t', '3000', title, message])
     except Exception:
         pass
 
+# --- Splash letter bitmaps (7×9 pixel grid) ---
+_SPLASH_LETTERS = {
+    'C': ['.#####.',
+          '#######',
+          '##.....',
+          '##.....',
+          '##.....',
+          '##.....',
+          '##.....',
+          '#######',
+          '.#####.'],
+    'O': ['.#####.',
+          '#######',
+          '##...##',
+          '##...##',
+          '##...##',
+          '##...##',
+          '##...##',
+          '#######',
+          '.#####.'],
+    'D': ['######.',
+          '#######',
+          '##...##',
+          '##...##',
+          '##...##',
+          '##...##',
+          '##...##',
+          '#######',
+          '######.'],
+    'A': ['..###..',
+          '.#####.',
+          '.##.##.',
+          '.##.##.',
+          '#######',
+          '##...##',
+          '##...##',
+          '##...##',
+          '##...##'],
+}
+
 # --- Startup splash ---
 def show_splash():
+    word     = 'CODA'
+    LETTER_W = 7
+    LETTER_H = 9
+    PIXEL    = 23
+    GAP      = PIXEL
+    PAD      = PIXEL * 2
+    canvas_w = len(word) * LETTER_W * PIXEL + (len(word) - 1) * GAP + PAD * 2
+    canvas_h = LETTER_H * PIXEL + PAD * 2
+
+    if PLATFORM == 'Darwin':
+        try:
+            import tkinter as tk
+        except Exception:
+            return
+
+        root = tk.Tk()
+        root.overrideredirect(True)
+        root.attributes('-topmost', True)
+        root.attributes('-alpha', 0.0)
+        root.configure(bg='black')
+        root.update_idletasks()
+        sw = root.winfo_screenwidth()
+        sh = root.winfo_screenheight()
+        root.geometry(f'{canvas_w}x{canvas_h}+{(sw - canvas_w)//2}+{(sh - canvas_h)//2}')
+
+        cv = tk.Canvas(root, width=canvas_w, height=canvas_h,
+                       bg='black', highlightthickness=0)
+        cv.pack()
+
+        x_off = PAD
+        for letter in word:
+            for row_i, row in enumerate(_SPLASH_LETTERS.get(letter, [])):
+                for col_i, ch in enumerate(row):
+                    if ch == '#':
+                        px = x_off + col_i * PIXEL
+                        py = PAD   + row_i * PIXEL
+                        pw = PIXEL - 2
+                        cv.create_rectangle(px, py, px + pw, py + pw,
+                                            fill='white', outline='')
+            x_off += LETTER_W * PIXEL + GAP
+
+        alpha   = [0.0]
+        phase   = ['fadein']
+        elapsed = [0]
+        INTERVAL, FADE_MS, HOLD_MS = 33, 500, 2500
+
+        def tick():
+            elapsed[0] += INTERVAL
+            if phase[0] == 'fadein':
+                alpha[0] = min(1.0, elapsed[0] / FADE_MS)
+                if elapsed[0] >= FADE_MS:
+                    phase[0] = 'hold'; elapsed[0] = 0
+            elif phase[0] == 'hold':
+                alpha[0] = 1.0
+                if elapsed[0] >= HOLD_MS:
+                    phase[0] = 'fadeout'; elapsed[0] = 0
+            elif phase[0] == 'fadeout':
+                alpha[0] = max(0.0, 1.0 - elapsed[0] / FADE_MS)
+                if elapsed[0] >= FADE_MS:
+                    root.destroy()
+                    return
+            root.attributes('-alpha', alpha[0])
+            root.after(INTERVAL, tick)
+
+        tick()
+        root.mainloop()
+        return
+
+    # GTK splash (Linux)
     try:
         import gi
         gi.require_version('Gtk', '3.0')
@@ -191,55 +313,6 @@ def show_splash():
         import cairo
     except Exception:
         return
-
-    # 7×9 pixel grid, 2-px strokes — matches Ithaca bold bitmap style
-    PIXEL_SIZE = 23   # 20 * 1.15
-    LETTERS = {
-        'C': ['.#####.',
-              '#######',
-              '##.....',
-              '##.....',
-              '##.....',
-              '##.....',
-              '##.....',
-              '#######',
-              '.#####.'],
-        'O': ['.#####.',
-              '#######',
-              '##...##',
-              '##...##',
-              '##...##',
-              '##...##',
-              '##...##',
-              '#######',
-              '.#####.'],
-        'D': ['######.',
-              '#######',
-              '##...##',
-              '##...##',
-              '##...##',
-              '##...##',
-              '##...##',
-              '#######',
-              '######.'],
-        'A': ['..###..',
-              '.#####.',
-              '.##.##.',
-              '.##.##.',
-              '#######',
-              '##...##',
-              '##...##',
-              '##...##',
-              '##...##'],
-    }
-    word     = 'CODA'
-    LETTER_W = 7
-    LETTER_H = 9
-    GAP      = PIXEL_SIZE
-    PAD      = PIXEL_SIZE * 2
-
-    canvas_w = len(word) * LETTER_W * PIXEL_SIZE + (len(word) - 1) * GAP + PAD * 2
-    canvas_h = LETTER_H * PIXEL_SIZE + PAD * 2
 
     win = Gtk.Window()
     win.set_decorated(False)
@@ -264,20 +337,20 @@ def show_splash():
         cr.set_operator(cairo.OPERATOR_OVER)
         x_off = PAD
         for letter in word:
-            for row_i, row in enumerate(LETTERS.get(letter, [])):
+            for row_i, row in enumerate(_SPLASH_LETTERS.get(letter, [])):
                 for col_i, ch in enumerate(row):
                     if ch == '#':
-                        px = x_off + col_i * PIXEL_SIZE
-                        py = PAD   + row_i * PIXEL_SIZE
-                        pw = PIXEL_SIZE - 2
-                        ph = PIXEL_SIZE - 2
+                        px = x_off + col_i * PIXEL
+                        py = PAD   + row_i * PIXEL
+                        pw = PIXEL - 2
+                        ph = PIXEL - 2
                         cr.set_source_rgba(1, 1, 1, alpha_val[0])
                         cr.rectangle(px - 1, py - 1, pw + 2, ph + 2)
                         cr.fill()
                         cr.set_source_rgba(0, 0, 0, alpha_val[0])
                         cr.rectangle(px, py, pw, ph)
                         cr.fill()
-            x_off += LETTER_W * PIXEL_SIZE + GAP
+            x_off += LETTER_W * PIXEL + GAP
 
     win.connect('draw', on_draw)
 
@@ -345,12 +418,22 @@ def launch_coda(icon=None, query=None):
             marker   = new_marker()
             cmd      = build_aider_cmd(folder, cfg, marker)
             provider = cfg.get("provider", "Ollama (local)")
-            subprocess.Popen([
-                'gnome-terminal',
-                f'--title=Coda · {provider}',
-                '--', 'bash', '-c', cmd
-            ])
-            time.sleep(1)   # let the terminal open before refreshing count
+            if PLATFORM == 'Darwin':
+                fd, script_path = tempfile.mkstemp(suffix='.sh', prefix='coda_launch_')
+                with os.fdopen(fd, 'w') as f:
+                    f.write(f'#!/bin/bash\nprintf "\\033]0;Coda · {provider}\\007"\n{cmd}\n')
+                os.chmod(script_path, 0o755)
+                subprocess.Popen([
+                    'osascript', '-e',
+                    f'tell application "Terminal" to do script "{script_path}"'
+                ])
+            else:
+                subprocess.Popen([
+                    'gnome-terminal',
+                    f'--title=Coda · {provider}',
+                    '--', 'bash', '-c', cmd
+                ])
+            time.sleep(1)
             if icon:
                 icon.icon = create_icon(get_terminal_count())
         except Exception as e:
@@ -365,14 +448,13 @@ def launch_email(icon=None, query=None):
     def _launch():
         global _email_proc
         if _email_proc is not None and _email_proc.poll() is None:
-            # Already running but hidden — tell it to show itself
             try:
                 os.kill(_email_proc.pid, signal.SIGUSR1)
             except Exception:
                 pass
             return
         script = os.path.join(CODA_DIR, 'coda-email.py')
-        _email_proc = subprocess.Popen(['/usr/bin/python3', script])
+        _email_proc = subprocess.Popen([sys.executable, script])
     threading.Thread(target=_launch, daemon=True).start()
 
 # --- Launch Preferences (single instance) ---
@@ -383,14 +465,25 @@ def launch_preferences(icon=None, query=None):
     def _launch():
         global _prefs_proc
         if _prefs_proc is not None and _prefs_proc.poll() is None:
-            try:
-                subprocess.run(['wmctrl', '-a', 'Coda — Preferences'],
-                               capture_output=True, timeout=2)
-            except Exception:
-                pass
+            if PLATFORM == 'Darwin':
+                try:
+                    subprocess.run([
+                        'osascript', '-e',
+                        'tell application "System Events"\n'
+                        'set frontmost of (first process whose name contains "python") to true\n'
+                        'end tell'
+                    ], capture_output=True, timeout=2)
+                except Exception:
+                    pass
+            else:
+                try:
+                    subprocess.run(['wmctrl', '-a', 'Coda — Preferences'],
+                                   capture_output=True, timeout=2)
+                except Exception:
+                    pass
             return
         script = os.path.join(CODA_DIR, 'coda-preferences.py')
-        _prefs_proc = subprocess.Popen(['/usr/bin/python3', script])
+        _prefs_proc = subprocess.Popen([sys.executable, script])
     threading.Thread(target=_launch, daemon=True).start()
 
 # --- Model switcher ---
@@ -433,36 +526,53 @@ def build_menu():
 
 # --- Quit ---
 def quit_app(icon, query):
-    # Find all open Coda terminal windows (both title formats)
-    coda_wins = []
-    try:
-        r = subprocess.run(['wmctrl', '-l'], capture_output=True, text=True)
-        for line in r.stdout.splitlines():
-            parts = line.split(None, 3)
-            if len(parts) >= 4:
-                title = parts[3]
-                if title.startswith('Coda ·') or title.startswith('Coda 🤖'):
-                    coda_wins.append(parts[0])
-    except Exception:
-        pass
+    if PLATFORM == 'Darwin':
+        coda_wins = glob.glob(os.path.join(MARKER_DIR, 'term_*'))
+        if coda_wins:
+            import tkinter as tk
+            from tkinter import messagebox
+            _r = tk.Tk()
+            _r.withdraw()
+            n = len(coda_wins)
+            s = 's' if n != 1 else ''
+            ok = messagebox.askyesno(
+                "Quit Coda",
+                f"You have {n} Coda terminal{s} open.\n\nQuit anyway? All terminals will be closed.",
+                parent=_r)
+            _r.destroy()
+            if not ok:
+                return
+        subprocess.run(['pkill', '-f', 'aider'], capture_output=True)
+    else:
+        coda_wins = []
+        try:
+            r = subprocess.run(['wmctrl', '-l'], capture_output=True, text=True)
+            for line in r.stdout.splitlines():
+                parts = line.split(None, 3)
+                if len(parts) >= 4:
+                    title = parts[3]
+                    if title.startswith('Coda ·') or title.startswith('Coda 🤖'):
+                        coda_wins.append(parts[0])
+        except Exception:
+            pass
 
-    # Warn if terminals are open
-    if coda_wins:
-        import tkinter as tk
-        from tkinter import messagebox
-        _r = tk.Tk()
-        _r.withdraw()
-        n = len(coda_wins)
-        s = 's' if n != 1 else ''
-        ok = messagebox.askyesno(
-            "Quit Coda",
-            f"You have {n} Coda terminal{s} open.\n\nQuit anyway? All terminals will be closed.",
-            parent=_r)
-        _r.destroy()
-        if not ok:
-            return
+        if coda_wins:
+            import tkinter as tk
+            from tkinter import messagebox
+            _r = tk.Tk()
+            _r.withdraw()
+            n = len(coda_wins)
+            s = 's' if n != 1 else ''
+            ok = messagebox.askyesno(
+                "Quit Coda",
+                f"You have {n} Coda terminal{s} open.\n\nQuit anyway? All terminals will be closed.",
+                parent=_r)
+            _r.destroy()
+            if not ok:
+                return
+        for wid in coda_wins:
+            subprocess.run(['wmctrl', '-ic', wid], capture_output=True)
 
-    # Kill everything — no survivors
     for proc in [_email_proc, _prefs_proc]:
         try:
             if proc is not None and proc.poll() is None:
@@ -471,8 +581,6 @@ def quit_app(icon, query):
             pass
     subprocess.run(['pkill', '-f', 'coda-email.py'],       capture_output=True)
     subprocess.run(['pkill', '-f', 'coda-preferences.py'], capture_output=True)
-    for wid in coda_wins:
-        subprocess.run(['wmctrl', '-ic', wid], capture_output=True)
     for f in [RUNNING_FILE, LOCK_FILE]:
         try: os.remove(f)
         except Exception: pass
