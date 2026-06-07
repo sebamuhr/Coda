@@ -4,13 +4,17 @@
 #  https://github.com/sebamuhr/Coda
 # ═══════════════════════════════════════════════════════════════
 
-echo "[debug] script started"
 set -e
-echo "[debug] set -e ok"
 
 # Allow interactive prompts even when piped (curl | bash)
-exec < /dev/tty
-echo "[debug] tty redirect ok"
+if [ ! -t 0 ]; then
+    exec < /dev/tty 2>/dev/null || {
+        echo ""
+        echo "  Error: cannot open terminal for interactive input."
+        echo "  Run with:  bash <(curl -fsSL https://raw.githubusercontent.com/sebamuhr/Coda/main/install.sh)"
+        exit 1
+    }
+fi
 
 REPO="https://raw.githubusercontent.com/sebamuhr/Coda/main"
 CODA_DIR="$HOME/Coda"
@@ -34,9 +38,7 @@ hr()   { echo "━━━━━━━━━━━━━━━━━━━━━�
 STEPS=8
 
 # ── Banner ────────────────────────────────────────────────────
-echo "[debug] about to clear screen"
 clear
-echo "[debug] screen cleared"
 echo ""
 echo -e "${BLUE}${BOLD}"
 cat << 'BANNER'
@@ -94,7 +96,7 @@ case "$PROVIDER_CHOICE" in
 
     echo ""
     ask "Which model do you want to use?"
-    MODELS_JSON=$(curl -s --connect-timeout 5 "http://${OLLAMA_IP}:11434/api/tags" 2>/dev/null)
+    MODELS_JSON=$(curl -s --connect-timeout 5 "http://${OLLAMA_IP}:11434/api/tags" 2>/dev/null) || true
     if [ -n "$MODELS_JSON" ]; then
         echo "  Models on your server:"
         echo "$MODELS_JSON" | python3 -c "
