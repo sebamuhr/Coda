@@ -234,8 +234,24 @@ ok "pystray and pillow installed"
 # ── 3: Aider ───────────────────────────────────────────────────
 step 3 "Setting up Aider  (the coding engine)..."
 echo -e "  ${GRAY}This may take a few minutes…${NC}"
+
+# aider-chat deps (numpy etc.) need Python 3.11–3.13 — no wheels for 3.14+ yet
+VENV_PYTHON=""
+for _py in python3.13 python3.12 python3.11; do
+    command -v "$_py" &>/dev/null && { VENV_PYTHON="$_py"; break; }
+done
+if [ -z "$VENV_PYTHON" ]; then
+    if [ "$OS" = "Darwin" ]; then
+        warn "Python 3.14 detected — installing python@3.13 via Homebrew (needed for aider)..."
+        brew install python@3.13 -q
+        VENV_PYTHON="$(brew --prefix)/bin/python3.13"
+    else
+        VENV_PYTHON=python3
+    fi
+fi
+
 if [ ! -d "$HOME/aider-env" ]; then
-    python3 -m venv ~/aider-env
+    "$VENV_PYTHON" -m venv ~/aider-env
 fi
 source ~/aider-env/bin/activate
 pip install --upgrade pip setuptools wheel -q
