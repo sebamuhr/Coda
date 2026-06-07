@@ -235,16 +235,17 @@ ok "pystray and pillow installed"
 step 3 "Setting up Aider  (the coding engine)..."
 echo -e "  ${GRAY}This may take a few minutes…${NC}"
 
-# aider-chat deps (numpy etc.) need Python 3.11–3.13 — no wheels for 3.14+ yet
+# aider-chat requires Python 3.12 — newer versions cap at 3.12, older ones
+# can't build their pinned numpy on 3.13+. Prefer 3.12, fall back to 3.11.
 VENV_PYTHON=""
-for _py in python3.13 python3.12 python3.11; do
+for _py in python3.12 python3.11; do
     command -v "$_py" &>/dev/null && { VENV_PYTHON="$_py"; break; }
 done
 if [ -z "$VENV_PYTHON" ]; then
     if [ "$OS" = "Darwin" ]; then
-        warn "Python 3.14 detected — installing python@3.13 via Homebrew (needed for aider)..."
-        brew install python@3.13 -q
-        VENV_PYTHON="$(brew --prefix python@3.13)/bin/python3.13"
+        warn "Installing python@3.12 via Homebrew (required for aider compatibility)..."
+        brew install python@3.12 -q
+        VENV_PYTHON="$(brew --prefix python@3.12)/bin/python3.12"
     else
         VENV_PYTHON=python3
     fi
@@ -255,7 +256,6 @@ rm -rf "$HOME/aider-env"
 "$VENV_PYTHON" -m venv ~/aider-env
 source ~/aider-env/bin/activate
 pip install --upgrade pip setuptools wheel -q
-pip install --no-cache-dir "numpy>=2.0"
 pip install --no-cache-dir --prefer-binary aider-chat
 deactivate
 ok "Aider installed in ~/aider-env"
