@@ -239,7 +239,7 @@ if [ ! -d "$HOME/aider-env" ]; then
 fi
 source ~/aider-env/bin/activate
 pip install --upgrade pip setuptools wheel -q
-pip install aider-chat
+pip install --no-cache-dir aider-chat
 deactivate
 ok "Aider installed in ~/aider-env"
 
