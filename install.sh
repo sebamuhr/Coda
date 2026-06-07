@@ -244,15 +244,15 @@ if [ -z "$VENV_PYTHON" ]; then
     if [ "$OS" = "Darwin" ]; then
         warn "Python 3.14 detected — installing python@3.13 via Homebrew (needed for aider)..."
         brew install python@3.13 -q
-        VENV_PYTHON="$(brew --prefix)/bin/python3.13"
+        VENV_PYTHON="$(brew --prefix python@3.13)/bin/python3.13"
     else
         VENV_PYTHON=python3
     fi
 fi
 
-if [ ! -d "$HOME/aider-env" ]; then
-    "$VENV_PYTHON" -m venv ~/aider-env
-fi
+# Always recreate the venv so we pick up the right Python version
+rm -rf "$HOME/aider-env"
+"$VENV_PYTHON" -m venv ~/aider-env
 source ~/aider-env/bin/activate
 pip install --upgrade pip setuptools wheel -q
 pip install --no-cache-dir aider-chat
