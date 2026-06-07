@@ -391,7 +391,8 @@ def ask_coda(context, instruction, mode='reply', contact_prompt='', corrections_
         )
     try:
         cfg = _cfg()
-        ollama_ip = (cfg.get('OLLAMA_IP', '') or 'localhost').replace('https://', '').replace('http://', '').strip('/') or 'localhost'
+        raw = cfg.get('EMAIL_OLLAMA_IP', '') or cfg.get('OLLAMA_IP', '') or 'localhost'
+        ollama_ip = raw.replace('https://', '').replace('http://', '').strip('/') or 'localhost'
         resp = requests.post(
             f"http://{ollama_ip}:11434/api/generate",
             json={'model': 'coda2.0:3b', 'prompt': prompt, 'stream': False},

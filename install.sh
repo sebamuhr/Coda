@@ -238,48 +238,136 @@ for f in coda-tray.py coda-email.py coda-preferences.py; do
 done
 ok "All files saved to ~/Coda/"
 
-# ── 5: Coda Email AI model ─────────────────────────────────────
-step 5 "Setting up Coda Email AI (coda2.0:3b)..."
+# ── 5: Email AI model (coda2.0:3b) ────────────────────────────
+step 5 "Setting up Email AI (coda2.0:3b)..."
+echo ""
+echo -e "  ${CYAN}The Email Assistant uses a dedicated local model (coda2.0:3b).${NC}"
+echo "  This is completely separate from your Call Coda setup."
+echo "  You need Ollama running — get it free at ollama.com"
+echo ""
+ask "Where is Ollama running for the Email Assistant?"
+read -p "  Ollama IP [localhost]: " EMAIL_OLLAMA_IP
+EMAIL_OLLAMA_IP=${EMAIL_OLLAMA_IP:-localhost}
+EMAIL_OLLAMA_IP="${EMAIL_OLLAMA_IP#http://}"
+EMAIL_OLLAMA_IP="${EMAIL_OLLAMA_IP%%:*}"
+EMAIL_OLLAMA_URL="http://${EMAIL_OLLAMA_IP}:11434"
 
-EMAIL_OLLAMA_HOST="${OLLAMA_IP:-localhost}"
-EMAIL_OLLAMA_URL="http://${EMAIL_OLLAMA_HOST}:11434"
+EMAIL_MODEL_READY=false
 
-if curl -s --connect-timeout 5 "${EMAIL_OLLAMA_URL}" 2>/dev/null | grep -q "Ollama"; then
-    echo "    Pulling qwen2.5:3b — this may take a few minutes..."
-    curl -s -X POST "${EMAIL_OLLAMA_URL}/api/pull" \
-         -H "Content-Type: application/json" \
-         -d '{"name":"qwen2.5:3b","stream":false}' \
-         --max-time 600 > /dev/null
-    ok "qwen2.5:3b downloaded"
+while true; do
+    echo ""
+    echo -e "  Testing connection to ${CYAN}${EMAIL_OLLAMA_URL}${NC}..."
+    if curl -s --connect-timeout 5 "${EMAIL_OLLAMA_URL}" 2>/dev/null | grep -q "Ollama"; then
+        ok "Connected to Ollama!"
+        EMAIL_MODEL_READY=true
+        break
+    else
+        echo -e "  ${RED}Cannot reach Ollama at ${EMAIL_OLLAMA_URL}${NC}"
+        echo ""
+        echo "  What would you like to do?"
+        echo "    1) Try a different IP"
+        echo "    2) Retry same address"
+        echo "    3) Skip — set up later from Preferences → Email → Pull Model"
+        echo ""
+        read -p "  Choice [1]: " RETRY_CHOICE
+        RETRY_CHOICE=${RETRY_CHOICE:-1}
+        case "$RETRY_CHOICE" in
+            1)
+                read -p "  Ollama IP: " EMAIL_OLLAMA_IP
+                EMAIL_OLLAMA_IP="${EMAIL_OLLAMA_IP#http://}"
+                EMAIL_OLLAMA_IP="${EMAIL_OLLAMA_IP%%:*}"
+                EMAIL_OLLAMA_URL="http://${EMAIL_OLLAMA_IP}:11434"
+                ;;
+            2) ;;
+            3)
+                warn "Email model skipped — use Preferences → Email → Pull Model to install later."
+                EMAIL_OLLAMA_IP="localhost"
+                break
+                ;;
+        esac
+    fi
+done
 
-    echo "    Creating coda2.0:3b..."
+if [ "$EMAIL_MODEL_READY" = "true" ]; then
+    echo ""
+    echo "    Downloading qwen2.5:3b (this may take several minutes)..."
     EMAIL_OLLAMA_URL="$EMAIL_OLLAMA_URL" python3 << 'PYEOF'
 import urllib.request, json, os, sys
+
 url = os.environ['EMAIL_OLLAMA_URL']
+
+# Pull qwen2.5:3b — streaming so the connection stays alive
+data = json.dumps({'name': 'qwen2.5:3b', 'stream': True}).encode()
+req  = urllib.request.Request(f'{url}/api/pull', data=data,
+                               headers={'Content-Type': 'application/json'})
+try:
+    last_pct = -1
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        while True:
+            line = resp.readline()
+            if not line:
+                break
+            try:
+                obj   = json.loads(line)
+                total = obj.get('total', 0)
+                done  = obj.get('completed', 0)
+                if total and done:
+                    pct = int(done / total * 100)
+                    if pct != last_pct:
+                        print(f'\r    Downloading qwen2.5:3b… {pct}%', end='', flush=True)
+                        last_pct = pct
+            except Exception:
+                pass
+    print()
+except Exception as e:
+    print(f'\n    Error during download: {e}', file=sys.stderr)
+    sys.exit(1)
+
+# Create coda2.0:3b — streaming
+print('    Creating coda2.0:3b…')
 modelfile = (
     'FROM qwen2.5:3b\n'
     'SYSTEM "You write emails on behalf of the user. '
     'Write naturally and concisely in their voice. '
     'Do not use robotic phrases or unnecessary pleasantries."'
 )
-data = json.dumps({'name': 'coda2.0:3b', 'modelfile': modelfile, 'stream': False}).encode()
-req = urllib.request.Request(f'{url}/api/create', data=data,
-                              headers={'Content-Type': 'application/json'})
+data = json.dumps({'name': 'coda2.0:3b', 'modelfile': modelfile, 'stream': True}).encode()
+req  = urllib.request.Request(f'{url}/api/create', data=data,
+                               headers={'Content-Type': 'application/json'})
 try:
-    urllib.request.urlopen(req, timeout=180)
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        while resp.readline():
+            pass
 except Exception as e:
-    print(f"    Warning: {e}", file=sys.stderr)
-PYEOF
-    ok "coda2.0:3b created"
+    print(f'    Warning during create: {e}', file=sys.stderr)
 
-    echo "    Removing qwen2.5:3b..."
-    curl -s -X DELETE "${EMAIL_OLLAMA_URL}/api/delete" \
-         -H "Content-Type: application/json" \
-         -d '{"name":"qwen2.5:3b"}' > /dev/null || true
-    ok "qwen2.5:3b removed — coda2.0:3b is ready"
-else
-    warn "Ollama not reachable at ${EMAIL_OLLAMA_URL} — skipping email model setup."
-    warn "Run later: ollama pull qwen2.5:3b && ollama create coda2.0:3b -f Modelfile"
+# Remove qwen2.5:3b
+print('    Removing qwen2.5:3b…')
+data = json.dumps({'name': 'qwen2.5:3b'}).encode()
+req  = urllib.request.Request(f'{url}/api/delete', data=data,
+                               headers={'Content-Type': 'application/json'},
+                               method='DELETE')
+try:
+    urllib.request.urlopen(req, timeout=30)
+except Exception:
+    pass
+
+# Verify coda2.0:3b is there
+with urllib.request.urlopen(f'{url}/api/tags', timeout=5) as r:
+    models = [m['name'] for m in json.loads(r.read()).get('models', [])]
+if any('coda2.0:3b' in m for m in models):
+    print('    Verified: coda2.0:3b is installed')
+else:
+    print('    ERROR: coda2.0:3b not found after setup', file=sys.stderr)
+    sys.exit(1)
+PYEOF
+
+    if [ $? -eq 0 ]; then
+        ok "coda2.0:3b ready!"
+    else
+        warn "Model setup had issues — use Preferences → Email → Pull Model to retry."
+        EMAIL_MODEL_READY=false
+    fi
 fi
 
 # ── 6: Configuration ───────────────────────────────────────────
@@ -292,22 +380,24 @@ API_KEY="$API_KEY" EMAIL_PROVIDER="$EMAIL_PROVIDER" \
 EMAIL_ADDR="$EMAIL_ADDR" APP_PASSWORD="$APP_PASSWORD" \
 IMAP_SERVER="$IMAP_SERVER" SMTP_SERVER="$SMTP_SERVER" \
 ALIAS_NAME="$ALIAS_NAME" USER_NAME="$USER_NAME" \
+EMAIL_OLLAMA_IP="$EMAIL_OLLAMA_IP" \
 python3 << 'PYEOF'
 import json, os
 cfg = {
-    "provider":        os.environ["PROVIDER"],
-    "ollama_ip":       os.environ["OLLAMA_IP"],
-    "model":           os.environ["MODEL"],
-    "api_key":         os.environ["API_KEY"],
-    "custom_url":      "",
-    "email_provider":  os.environ["EMAIL_PROVIDER"],
-    "email":           os.environ["EMAIL_ADDR"],
-    "app_password":    os.environ["APP_PASSWORD"],
-    "imap_server":     os.environ["IMAP_SERVER"],
-    "smtp_server":     os.environ["SMTP_SERVER"],
-    "alias":           os.environ["ALIAS_NAME"],
-    "refresh_minutes": 5,
-    "user_name":       os.environ["USER_NAME"],
+    "provider":         os.environ["PROVIDER"],
+    "ollama_ip":        os.environ["OLLAMA_IP"],
+    "model":            os.environ["MODEL"],
+    "api_key":          os.environ["API_KEY"],
+    "custom_url":       "",
+    "email_provider":   os.environ["EMAIL_PROVIDER"],
+    "email":            os.environ["EMAIL_ADDR"],
+    "app_password":     os.environ["APP_PASSWORD"],
+    "imap_server":      os.environ["IMAP_SERVER"],
+    "smtp_server":      os.environ["SMTP_SERVER"],
+    "alias":            os.environ["ALIAS_NAME"],
+    "refresh_minutes":  5,
+    "user_name":        os.environ["USER_NAME"],
+    "email_ollama_ip":  os.environ["EMAIL_OLLAMA_IP"],
 }
 path = os.path.expanduser("~/.config/coda/config.json")
 with open(path, "w") as f:
@@ -318,7 +408,7 @@ PYEOF
 # Write email.conf (used by the email agent)
 EMAIL_ADDR="$EMAIL_ADDR" APP_PASSWORD="$APP_PASSWORD" \
 IMAP_SERVER="$IMAP_SERVER" SMTP_SERVER="$SMTP_SERVER" \
-EMAIL_PROVIDER="$EMAIL_PROVIDER" OLLAMA_IP="$OLLAMA_IP" MODEL="$MODEL" \
+EMAIL_PROVIDER="$EMAIL_PROVIDER" EMAIL_OLLAMA_IP="$EMAIL_OLLAMA_IP" \
 python3 << 'PYEOF'
 import os
 lines = [
@@ -327,8 +417,7 @@ lines = [
     f"IMAP_SERVER={os.environ['IMAP_SERVER']}",
     f"SMTP_SERVER={os.environ['SMTP_SERVER']}",
     f"PROVIDER={os.environ['EMAIL_PROVIDER']}",
-    f"OLLAMA_IP={os.environ['OLLAMA_IP']}",
-    f"MODEL={os.environ['MODEL']}",
+    f"EMAIL_OLLAMA_IP={os.environ['EMAIL_OLLAMA_IP']}",
 ]
 path = os.path.expanduser("~/.config/coda/email.conf")
 os.makedirs(os.path.dirname(path), exist_ok=True)

@@ -111,7 +111,8 @@ def load_config():
         "email_ai_key": "",
         "email_sync_count": 15,
         "theme": "light",
-        "learning_mode": "silent",
+        "learning_mode":    "silent",
+        "email_ollama_ip":  "localhost",
     }
     try:
         with open(CONFIG_FILE) as f:
@@ -138,6 +139,7 @@ def write_email_conf(cfg):
         f"SYNC_COUNT={cfg.get('email_sync_count', 15)}",
         f"THEME={cfg.get('theme', 'light')}",
         f"LEARNING_MODE={cfg.get('learning_mode', 'silent')}",
+        f"EMAIL_OLLAMA_IP={cfg.get('email_ollama_ip', 'localhost')}",
     ]
     os.makedirs(os.path.dirname(EMAIL_CONF), exist_ok=True)
     with open(EMAIL_CONF, 'w') as f:
@@ -330,39 +332,47 @@ class PreferencesApp:
         ttk.Label(f, text="Model:").grid(row=11, column=0, sticky='w', pady=4)
         ttk.Label(f, text="coda2.0:3b (local)", font=('', 10, 'bold')).grid(row=11, column=1, sticky='w', pady=4)
 
-        ttk.Label(f, text="Status:").grid(row=12, column=0, sticky='w', pady=4)
+        ttk.Label(f, text="Ollama IP:").grid(row=12, column=0, sticky='w', pady=4)
+        self.var_email_ollama_ip = tk.StringVar()
+        email_ip_row = ttk.Frame(f)
+        email_ip_row.grid(row=12, column=1, sticky='ew', pady=4)
+        ttk.Entry(email_ip_row, textvariable=self.var_email_ollama_ip, width=22).pack(side='left')
+        ttk.Button(email_ip_row, text='↺ Check', width=8,
+                   command=self._check_model_status).pack(side='left', padx=(6, 0))
+
+        ttk.Label(f, text="Status:").grid(row=14, column=0, sticky='w', pady=4)
         self._model_status_lbl = ttk.Label(f, text="Checking...", foreground='gray')
-        self._model_status_lbl.grid(row=12, column=1, sticky='w', pady=4)
+        self._model_status_lbl.grid(row=14, column=1, sticky='w', pady=4)
 
         self._pull_btn = ttk.Button(f, text='⬇  Pull Model',
                                      command=self._pull_model, width=16)
-        self._pull_btn.grid(row=13, column=1, sticky='w', pady=(0, 4))
+        self._pull_btn.grid(row=15, column=1, sticky='w', pady=(0, 4))
         self._pull_btn.grid_remove()
 
         self._pull_progress = ttk.Label(f, text='', foreground='gray', font=('', 8))
-        self._pull_progress.grid(row=14, column=0, columnspan=2, sticky='w')
+        self._pull_progress.grid(row=16, column=0, columnspan=2, sticky='w')
         self._pull_progress.grid_remove()
 
         ttk.Label(f, text="The email assistant always runs locally for privacy.",
-                  foreground='gray', font=('', 8)).grid(row=15, column=0, columnspan=2, sticky='w')
+                  foreground='gray', font=('', 8)).grid(row=17, column=0, columnspan=2, sticky='w')
 
-        ttk.Separator(f).grid(row=16, column=0, columnspan=2, sticky='ew', pady=10)
+        ttk.Separator(f).grid(row=18, column=0, columnspan=2, sticky='ew', pady=10)
 
-        ttk.Label(f, text="Learning", font=('', 11, 'bold')).grid(row=17, column=0, columnspan=2, sticky='w', pady=(0, 6))
-        ttk.Label(f, text="When you edit Coda's reply before sending:").grid(row=18, column=0, columnspan=2, sticky='w')
+        ttk.Label(f, text="Learning", font=('', 11, 'bold')).grid(row=19, column=0, columnspan=2, sticky='w', pady=(0, 6))
+        ttk.Label(f, text="When you edit Coda's reply before sending:").grid(row=20, column=0, columnspan=2, sticky='w')
 
-        ttk.Label(f, text="Learning mode:").grid(row=19, column=0, sticky='w', pady=4)
+        ttk.Label(f, text="Learning mode:").grid(row=21, column=0, sticky='w', pady=4)
         self.var_learning = tk.StringVar()
         ttk.Combobox(f, textvariable=self.var_learning, values=['Silent', 'Approval'],
-                     state='readonly', width=14).grid(row=19, column=1, sticky='w', pady=4)
+                     state='readonly', width=14).grid(row=21, column=1, sticky='w', pady=4)
         ttk.Label(f, text="Silent: saves corrections automatically\n"
                           "Approval: asks you before saving each correction",
-                  foreground='gray', font=('', 8)).grid(row=20, column=0, columnspan=2, sticky='w')
+                  foreground='gray', font=('', 8)).grid(row=22, column=0, columnspan=2, sticky='w')
 
         f.columnconfigure(1, weight=1)
 
     def _ollama_base_url(self):
-        ip = self.var_ip.get().strip()
+        ip = self.var_email_ollama_ip.get().strip()
         ip = (ip or 'localhost').replace('http://', '').replace('https://', '').strip('/') or 'localhost'
         return f"http://{ip}:11434"
 
@@ -599,6 +609,7 @@ class PreferencesApp:
         self.var_alias.set('coda')
         self.var_theme.set(c.get('theme', 'light').capitalize())
         self.var_learning.set(c.get('learning_mode', 'silent').capitalize())
+        self.var_email_ollama_ip.set(c.get('email_ollama_ip', 'localhost'))
         self.root.after(400, self._check_model_status)
 
     # ── Save ──────────────────────────────────────────
@@ -634,6 +645,7 @@ class PreferencesApp:
             "email_sync_count":  sync_count,
             "theme":             self.var_theme.get().lower(),
             "learning_mode":     self.var_learning.get().lower(),
+            "email_ollama_ip":   self.var_email_ollama_ip.get().strip() or 'localhost',
         })
 
         save_config(self.cfg)
