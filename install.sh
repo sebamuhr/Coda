@@ -238,6 +238,7 @@ if [ ! -d "$HOME/aider-env" ]; then
     python3 -m venv ~/aider-env
 fi
 source ~/aider-env/bin/activate
+pip install --upgrade pip setuptools wheel -q
 pip install aider-chat
 deactivate
 ok "Aider installed in ~/aider-env"
