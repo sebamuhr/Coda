@@ -463,6 +463,12 @@ def quit_app(icon, query):
             return
 
     # Kill everything — no survivors
+    for proc in [_email_proc, _prefs_proc]:
+        try:
+            if proc is not None and proc.poll() is None:
+                proc.terminate()
+        except Exception:
+            pass
     subprocess.run(['pkill', '-f', 'coda-email.py'],       capture_output=True)
     subprocess.run(['pkill', '-f', 'coda-preferences.py'], capture_output=True)
     for wid in coda_wins:

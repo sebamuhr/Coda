@@ -530,10 +530,10 @@ class PreferencesApp:
                 icon='warning'):
             return
 
-        # Remove Ollama model
+        # Remove Ollama model (use email-specific IP)
         try:
             cfg = load_config()
-            ip = (cfg.get('ollama_ip', '') or 'localhost').replace('http://', '').replace('https://', '').strip('/') or 'localhost'
+            ip = (cfg.get('email_ollama_ip', '') or 'localhost').replace('http://', '').replace('https://', '').strip('/') or 'localhost'
             subprocess.run(
                 ['curl', '-s', '-X', 'DELETE',
                  f'http://{ip}:11434/api/delete',
@@ -580,12 +580,20 @@ class PreferencesApp:
         except Exception:
             pass
 
-        # Schedule app directory deletion + kill tray after this process exits
+        # Kill all running Coda processes and delete app directory
         coda_dir = os.path.dirname(os.path.abspath(__file__))
-        cleanup = f'sleep 2 && rm -rf "{coda_dir}" && pkill -f coda-tray.py'
+        cleanup = (
+            f'sleep 2 && '
+            f'pkill -f coda-email.py; '
+            f'pkill -f coda-tray.py; '
+            f'rm -rf "{coda_dir}"'
+        )
         subprocess.Popen(['bash', '-c', cleanup])
 
-        messagebox.showinfo("Uninstalled", "Coda has been uninstalled.\nThe app will close now.")
+        messagebox.showinfo(
+            "Coda uninstalled",
+            "All Coda data, files and the AI model have been removed.\n\n"
+            "Open a new terminal — the 'coda' command will no longer work there.")
         self.root.destroy()
 
     # ── Load values ───────────────────────────────────
