@@ -245,6 +245,7 @@ echo "  This is completely separate from your Call Coda setup."
 echo "  You need Ollama running — get it free at ollama.com"
 echo ""
 ask "Where is Ollama running for the Email Assistant?"
+echo -e "  ${GRAY}Enter 'localhost' if Ollama is on this machine, or an IP like 192.168.1.50${NC}"
 read -p "  Ollama IP [localhost]: " EMAIL_OLLAMA_IP
 EMAIL_OLLAMA_IP=${EMAIL_OLLAMA_IP:-localhost}
 EMAIL_OLLAMA_IP="${EMAIL_OLLAMA_IP#http://}"
@@ -266,7 +267,8 @@ while true; do
         echo "  What would you like to do?"
         echo "    1) Try a different IP"
         echo "    2) Retry same address"
-        echo "    3) Skip — set up later from Preferences → Email → Pull Model"
+        echo "    3) Install Ollama on this machine  (free, runs locally)"
+        echo "    4) Skip — set up later from Preferences → Email → Pull Model"
         echo ""
         read -p "  Choice [1]: " RETRY_CHOICE
         RETRY_CHOICE=${RETRY_CHOICE:-1}
@@ -279,6 +281,16 @@ while true; do
                 ;;
             2) ;;
             3)
+                echo ""
+                echo "  Installing Ollama..."
+                curl -fsSL https://ollama.com/install.sh | sh
+                echo ""
+                echo "  Waiting for Ollama to start..."
+                sleep 4
+                EMAIL_OLLAMA_IP="localhost"
+                EMAIL_OLLAMA_URL="http://localhost:11434"
+                ;;
+            4)
                 warn "Email model skipped — use Preferences → Email → Pull Model to install later."
                 EMAIL_OLLAMA_IP="localhost"
                 break
