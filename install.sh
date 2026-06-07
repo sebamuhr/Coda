@@ -227,7 +227,8 @@ ok "Done"
 
 # ── 2: Python packages ─────────────────────────────────────────
 step 2 "Installing Python packages..."
-python3 -m pip install pystray pillow -q 2>/dev/null
+python3 -m pip install pystray pillow --break-system-packages -q 2>/dev/null \
+    || python3 -m pip install pystray pillow --user -q
 ok "pystray and pillow installed"
 
 # ── 3: Aider ───────────────────────────────────────────────────
