@@ -369,24 +369,28 @@ class PreferencesApp:
     def _check_model_status(self):
         self._model_status_lbl.config(text="Checking…", foreground='gray')
         self._pull_btn.grid_remove()
+        self._pull_progress.config(text='')
 
         def _check():
+            url = self._ollama_base_url() + '/api/tags'
             try:
-                url = self._ollama_base_url() + '/api/tags'
                 with urllib.request.urlopen(url, timeout=5) as r:
                     data = json.loads(r.read())
                 found = any('coda2.0:3b' in m.get('name', '')
                             for m in data.get('models', []))
-            except Exception:
-                found = False
-            if found:
+                if found:
+                    self.root.after(0, lambda: self._model_status_lbl.config(
+                        text="✓ Ready", foreground='green'))
+                    self.root.after(0, self._pull_btn.grid_remove)
+                else:
+                    self.root.after(0, lambda: self._model_status_lbl.config(
+                        text="✗ Not installed", foreground='red'))
+                    self.root.after(0, self._pull_btn.grid)
+            except OSError:
+                host = self._ollama_base_url()
                 self.root.after(0, lambda: self._model_status_lbl.config(
-                    text="✓ Ready", foreground='green'))
+                    text=f"✗ Ollama not reachable at {host}", foreground='red'))
                 self.root.after(0, self._pull_btn.grid_remove)
-            else:
-                self.root.after(0, lambda: self._model_status_lbl.config(
-                    text="✗ Not installed", foreground='red'))
-                self.root.after(0, self._pull_btn.grid)
 
         threading.Thread(target=_check, daemon=True).start()
 
