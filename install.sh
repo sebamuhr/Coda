@@ -22,6 +22,7 @@ CONFIG_DIR="$HOME/.config/coda"
 
 BOLD=$(tput bold 2>/dev/null || echo "")
 RESET=$(tput sgr0 2>/dev/null || echo "")
+GRAY='\033[0;90m'
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
@@ -96,6 +97,7 @@ case "$PROVIDER_CHOICE" in
 
     echo ""
     ask "Which model do you want to use?"
+    echo -e "  ${GRAY}(no GPU? qwen2.5:3b is a good choice)${NC}"
     MODELS_JSON=$(curl -s --connect-timeout 5 "http://${OLLAMA_IP}:11434/api/tags" 2>/dev/null) || true
     if [ -n "$MODELS_JSON" ]; then
         echo "  Models on your server:"
@@ -160,10 +162,10 @@ read -p "  Name: " USER_NAME
 USER_NAME=${USER_NAME:-User}
 
 # ── Terminal alias ─────────────────────────────────────────────
+ALIAS_NAME="coda"
 echo ""
-ask "Terminal command name  (what you type in the terminal to launch Coda):"
-read -p "  Command [coda]: " ALIAS_NAME
-ALIAS_NAME=${ALIAS_NAME:-coda}
+ask "Terminal command:"
+echo -e "  ${GRAY}coda${NC}"
 
 # ── Email Agent ────────────────────────────────────────────────
 echo ""
@@ -171,7 +173,6 @@ hr
 echo ""
 ask "Email Agent setup  (reads inbox, writes replies with AI)"
 echo "  This needs a Gmail App Password."
-echo "  Get one at: myaccount.google.com → Security → App Passwords"
 echo ""
 read -p "  Set up Email Agent now? [y/N]: " SETUP_EMAIL
 
@@ -186,7 +187,8 @@ if [ "${SETUP_EMAIL,,}" = "y" ]; then
     ask "Email address:"
     read -p "  Email: " EMAIL_ADDR
     echo ""
-    ask "App Password  (16 characters, spaces are fine):"
+    ask "App Password:"
+    echo -e "  ${GRAY}16 characters — get it at myaccount.google.com → Security → App Passwords${NC}"
     read -s -p "  App Password: " APP_PASSWORD
     echo ""
 fi
