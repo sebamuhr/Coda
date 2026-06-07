@@ -363,10 +363,11 @@ class PreferencesApp:
 
         ttk.Label(f, text="Learning mode:").grid(row=21, column=0, sticky='w', pady=4)
         self.var_learning = tk.StringVar()
-        ttk.Combobox(f, textvariable=self.var_learning, values=['Silent', 'Approval'],
+        ttk.Combobox(f, textvariable=self.var_learning, values=['Silent', 'Approval', 'Off'],
                      state='readonly', width=14).grid(row=21, column=1, sticky='w', pady=4)
         ttk.Label(f, text="Silent: saves corrections automatically\n"
-                          "Approval: asks you before saving each correction",
+                          "Approval: asks you before saving each correction\n"
+                          "Off: no learning",
                   foreground='gray', font=('', 8)).grid(row=22, column=0, columnspan=2, sticky='w')
 
         f.columnconfigure(1, weight=1)

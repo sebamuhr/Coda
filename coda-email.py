@@ -370,37 +370,62 @@ def send_email(to, subject, body, selected_email=None):
         smtp.login(cfg.get('EMAIL', ''), cfg.get('APP_PASSWORD', ''))
         smtp.sendmail(cfg.get('EMAIL', ''), to, msg.as_bytes())
 
-def ask_coda(context, instruction, mode='reply', contact_prompt='', corrections_context=''):
+def _build_prompt(context, instruction, mode, contact_prompt, corrections_context):
     extra = ''
     if contact_prompt:
         extra += f"\n\nSPECIAL INSTRUCTIONS FOR THIS CONTACT:\n{contact_prompt}"
     if corrections_context:
         extra += f"\n\n{corrections_context}"
     if mode == 'new':
-        prompt = (
+        return (
             "You are an email assistant. Write an email based on the instruction below.\n\n"
             f"INSTRUCTION:\n{instruction}{extra}\n\n"
             "Write only the email body. No subject line. Sign off as Sebastian."
         )
-    else:
-        prompt = (
-            "You are an email assistant. Based on the email conversation below, write a reply.\n\n"
-            f"EMAIL CONTEXT:\n{context}\n\n"
-            f"USER INSTRUCTION:\n{instruction}{extra}\n\n"
-            "Write only the email body. No subject line. Sign off as Sebastian."
-        )
+    return (
+        "You are an email assistant. Based on the email conversation below, write a reply.\n\n"
+        f"EMAIL CONTEXT:\n{context}\n\n"
+        f"USER INSTRUCTION:\n{instruction}{extra}\n\n"
+        "Write only the email body. No subject line. Sign off as Sebastian."
+    )
+
+def _ollama_url():
+    cfg = _cfg()
+    raw = cfg.get('EMAIL_OLLAMA_IP', '') or cfg.get('OLLAMA_IP', '') or 'localhost'
+    ip  = raw.replace('https://', '').replace('http://', '').strip('/') or 'localhost'
+    return f"http://{ip}:11434/api/generate"
+
+def ask_coda(context, instruction, mode='reply', contact_prompt='', corrections_context=''):
+    prompt = _build_prompt(context, instruction, mode, contact_prompt, corrections_context)
     try:
-        cfg = _cfg()
-        raw = cfg.get('EMAIL_OLLAMA_IP', '') or cfg.get('OLLAMA_IP', '') or 'localhost'
-        ollama_ip = raw.replace('https://', '').replace('http://', '').strip('/') or 'localhost'
         resp = requests.post(
-            f"http://{ollama_ip}:11434/api/generate",
+            _ollama_url(),
             json={'model': 'coda2.0:3b', 'prompt': prompt, 'stream': False},
             timeout=120,
         )
         return resp.json()['response']
     except Exception as e:
         return f"Error calling Coda: {e}"
+
+def ask_coda_stream(context, instruction, mode='reply', contact_prompt='', corrections_context=''):
+    prompt = _build_prompt(context, instruction, mode, contact_prompt, corrections_context)
+    try:
+        resp = requests.post(
+            _ollama_url(),
+            json={'model': 'coda2.0:3b', 'prompt': prompt, 'stream': True},
+            timeout=120,
+            stream=True,
+        )
+        for line in resp.iter_lines():
+            if line:
+                try:
+                    token = json.loads(line).get('response', '')
+                    if token:
+                        yield token
+                except Exception:
+                    pass
+    except Exception as e:
+        yield f"Error calling Coda: {e}"
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -427,7 +452,6 @@ class EmailApp:
         self.selected        = {k: None for k in self.TAB_KEYS}
         self.current_tab_key = 'unread'
         self._coda_original  = {k: None for k in list(self.TAB_KEYS) + ['new']}
-        self._feedback_state = {k: 'none' for k in list(self.TAB_KEYS) + ['new']}
 
         self._build_ui()
         self.load_tab('unread')
@@ -571,9 +595,10 @@ class EmailApp:
 
         btn_frm = ttk.Frame(bottom, padding=(4, 6))
         btn_frm.pack(fill='x')
-        ttk.Button(btn_frm, text="✍  Write Reply",
-                   command=lambda k=key: self._write_reply(k),
-                   width=16).pack(side='left', padx=4)
+        write_btn = ttk.Button(btn_frm, text="✍  Write Reply",
+                               command=lambda k=key: self._write_reply(k),
+                               width=16)
+        write_btn.pack(side='left', padx=4)
         ttk.Button(btn_frm, text="💾  Save to Drafts",
                    command=lambda k=key: self._save_draft_reply(k),
                    width=18).pack(side='left', padx=4)
@@ -587,19 +612,8 @@ class EmailApp:
                                                 relief='flat', borderwidth=1)
         reply_area.pack(fill='both', expand=True)
 
-        fb_row = ttk.Frame(lf4)
-        fb_row.pack(fill='x', pady=(4, 0))
-        approve_btn = ttk.Button(fb_row, text='👍  Approve',
-                                  command=lambda k=key: self._approve_reply(k),
-                                  width=13, state='disabled')
-        approve_btn.pack(side='left', padx=(0, 4))
-        reject_btn = ttk.Button(fb_row, text='👎  Reject',
-                                 command=lambda k=key: self._reject_reply(k),
-                                 width=13, state='disabled')
-        reject_btn.pack(side='left')
-
         return {'listbox': lb, 'preview': preview, 'instruction': instruction,
-                'reply': reply_area, 'approve_btn': approve_btn, 'reject_btn': reject_btn}
+                'reply': reply_area, 'write_btn': write_btn}
 
     def _make_new_email_panel(self, parent):
         # To / Subject — fixed, not resizable
@@ -632,8 +646,9 @@ class EmailApp:
 
         btn_frm = ttk.Frame(bottom, padding=(4, 6))
         btn_frm.pack(fill='x')
-        ttk.Button(btn_frm, text="✍  Write Email",
-                   command=self._write_new, width=16).pack(side='left', padx=4)
+        self.new_write_btn = ttk.Button(btn_frm, text="✍  Write Email",
+                                        command=self._write_new, width=16)
+        self.new_write_btn.pack(side='left', padx=4)
         ttk.Button(btn_frm, text="💾  Save to Drafts",
                    command=self._save_new_draft, width=18).pack(side='left', padx=4)
         ttk.Button(btn_frm, text="🚀  Send Now",
@@ -644,17 +659,6 @@ class EmailApp:
         self.new_reply_area = scrolledtext.ScrolledText(lf2, font=('', 9), wrap='word',
                                                          relief='flat', borderwidth=1)
         self.new_reply_area.pack(fill='both', expand=True)
-
-        fb_row = ttk.Frame(lf2)
-        fb_row.pack(fill='x', pady=(4, 0))
-        self.new_approve_btn = ttk.Button(fb_row, text='👍  Approve',
-                                           command=lambda: self._approve_reply('new'),
-                                           width=13, state='disabled')
-        self.new_approve_btn.pack(side='left', padx=(0, 4))
-        self.new_reject_btn = ttk.Button(fb_row, text='👎  Reject',
-                                          command=lambda: self._reject_reply('new'),
-                                          width=13, state='disabled')
-        self.new_reject_btn.pack(side='left')
 
     # ── tab switching ──────────────────────────────────────────────
 
@@ -744,15 +748,20 @@ class EmailApp:
         if not inst:
             messagebox.showwarning("No instruction", "Please type what you want to say.")
             return
-        reply_area  = self._widgets[key]['reply']
-        approve_btn = self._widgets[key]['approve_btn']
-        reject_btn  = self._widgets[key]['reject_btn']
+        reply_area = self._widgets[key]['reply']
+        write_btn  = self._widgets[key]['write_btn']
+
+        # Learning check on refresh (button already said "Refresh")
+        original = self._coda_original.get(key)
+        if original is not None:
+            current = reply_area.get('1.0', 'end').strip()
+            if current and current != original.strip():
+                self._maybe_save_correction(key, original, current, em['from'])
+
         reply_area.delete('1.0', 'end')
         reply_area.insert('end', 'Coda is writing your reply…')
-        approve_btn.config(state='disabled')
-        reject_btn.config(state='disabled')
-        self._coda_original[key]  = None
-        self._feedback_state[key] = 'none'
+        write_btn.config(state='disabled')
+        self._coda_original[key] = None
         self.set_status("Coda is thinking…")
         ctx = f"From: {em['from']}\nSubject: {em['subject']}\n\n{em['body']}"
 
@@ -760,13 +769,17 @@ class EmailApp:
             contacts = load_contacts()
             cp  = find_contact_prompt(em['from'], contacts)
             cc  = build_corrections_context(em['from'], contacts)
-            text = ask_coda(ctx, inst, contact_prompt=cp, corrections_context=cc)
             self.root.after(0, lambda: reply_area.delete('1.0', 'end'))
-            self.root.after(0, lambda: reply_area.insert('end', text))
+            tokens = []
+            for token in ask_coda_stream(ctx, inst, contact_prompt=cp, corrections_context=cc):
+                tokens.append(token)
+                t = token
+                self.root.after(0, lambda t=t: reply_area.insert('end', t))
+            text = ''.join(tokens)
             self.root.after(0, lambda: setattr(self, '_coda_original',
                             {**self._coda_original, key: text}))
-            self.root.after(0, lambda: approve_btn.config(state='normal'))
-            self.root.after(0, lambda: reject_btn.config(state='normal'))
+            self.root.after(0, lambda: write_btn.config(
+                            text='🔄  Refresh', state='normal'))
             self.root.after(0, lambda: self.set_status("Done!"))
 
         threading.Thread(target=_do, daemon=True).start()
@@ -800,11 +813,9 @@ class EmailApp:
                 send_email(em['from'], em['subject'], body, em)
                 original = self._coda_original.get(key)
                 if original and original.strip() != body.strip():
-                    self._handle_correction(key, original, body, em['from'])
-                self._coda_original[key]  = None
-                self._feedback_state[key] = 'none'
-                self._widgets[key]['approve_btn'].config(state='disabled')
-                self._widgets[key]['reject_btn'].config(state='disabled')
+                    self._maybe_save_correction(key, original, body, em['from'])
+                self._coda_original[key] = None
+                self._widgets[key]['write_btn'].config(text='✍  Write Reply')
                 messagebox.showinfo("Sent!", "Email sent!")
             except Exception as ex:
                 messagebox.showerror("Error", f"Could not send: {ex}")
@@ -817,25 +828,35 @@ class EmailApp:
             messagebox.showwarning("No instruction", "Please describe what you want to say.")
             return
         to = self.new_to.get().strip()
+
+        # Learning check on refresh
+        original = self._coda_original.get('new')
+        if original is not None:
+            current = self.new_reply_area.get('1.0', 'end').strip()
+            if current and current != original.strip():
+                self._maybe_save_correction('new', original, current, to)
+
         self.new_reply_area.delete('1.0', 'end')
         self.new_reply_area.insert('end', 'Coda is writing your email…')
-        self.new_approve_btn.config(state='disabled')
-        self.new_reject_btn.config(state='disabled')
-        self._coda_original['new']  = None
-        self._feedback_state['new'] = 'none'
+        self.new_write_btn.config(state='disabled')
+        self._coda_original['new'] = None
         self.set_status("Coda is thinking…")
 
         def _do():
             contacts = load_contacts()
             cp   = find_contact_prompt(to, contacts) if to else ''
             cc   = build_corrections_context(to, contacts) if to else ''
-            text = ask_coda('', inst, mode='new', contact_prompt=cp, corrections_context=cc)
             self.root.after(0, lambda: self.new_reply_area.delete('1.0', 'end'))
-            self.root.after(0, lambda: self.new_reply_area.insert('end', text))
+            tokens = []
+            for token in ask_coda_stream('', inst, mode='new', contact_prompt=cp, corrections_context=cc):
+                tokens.append(token)
+                t = token
+                self.root.after(0, lambda t=t: self.new_reply_area.insert('end', t))
+            text = ''.join(tokens)
             self.root.after(0, lambda: setattr(self, '_coda_original',
                             {**self._coda_original, 'new': text}))
-            self.root.after(0, lambda: self.new_approve_btn.config(state='normal'))
-            self.root.after(0, lambda: self.new_reject_btn.config(state='normal'))
+            self.root.after(0, lambda: self.new_write_btn.config(
+                            text='🔄  Refresh', state='normal'))
             self.root.after(0, lambda: self.set_status("Done!"))
 
         threading.Thread(target=_do, daemon=True).start()
@@ -871,11 +892,9 @@ class EmailApp:
                 send_email(to, subject, body)
                 original = self._coda_original.get('new')
                 if original and original.strip() != body.strip():
-                    self._handle_correction('new', original, body, to)
-                self._coda_original['new']  = None
-                self._feedback_state['new'] = 'none'
-                self.new_approve_btn.config(state='disabled')
-                self.new_reject_btn.config(state='disabled')
+                    self._maybe_save_correction('new', original, body, to)
+                self._coda_original['new'] = None
+                self.new_write_btn.config(text='✍  Write Email')
                 messagebox.showinfo("Sent!", "Email sent!")
             except Exception as ex:
                 messagebox.showerror("Error", f"Could not send: {ex}")
@@ -883,40 +902,19 @@ class EmailApp:
 
     # ── Feedback ───────────────────────────────────────────────────
 
-    def _approve_reply(self, key):
-        self._feedback_state[key] = 'approved'
-        if key == 'new':
-            self.new_approve_btn.config(state='disabled')
-            self.new_reject_btn.config(state='disabled')
-        else:
-            self._widgets[key]['approve_btn'].config(state='disabled')
-            self._widgets[key]['reject_btn'].config(state='disabled')
-        self.set_status("Reply approved ✓")
-
-    def _reject_reply(self, key):
-        self._feedback_state[key] = 'rejected'
-        if key == 'new':
-            self.new_approve_btn.config(state='disabled')
-            self.new_reject_btn.config(state='disabled')
-        else:
-            self._widgets[key]['approve_btn'].config(state='disabled')
-            self._widgets[key]['reject_btn'].config(state='disabled')
-        self.set_status("Reply rejected — edit and send your version")
-
-    def _handle_correction(self, key, original, sent, sender_email):
+    def _maybe_save_correction(self, key, original, sent, sender_email):
         mode = _cfg().get('LEARNING_MODE', 'silent').lower()
-        contacts = load_contacts()
-        idx = find_contact_idx(sender_email, contacts)
-        label = ''
-        if idx is not None:
-            label = contacts[idx].get('name') or (contacts[idx].get('emails') or [''])[0]
-
+        if mode == 'off':
+            return
         if mode == 'approval':
+            contacts = load_contacts()
+            idx   = find_contact_idx(sender_email, contacts)
+            label = ''
+            if idx is not None:
+                label = contacts[idx].get('name') or (contacts[idx].get('emails') or [''])[0]
             who = f" for {label}" if label else ""
-            if not messagebox.askyesno(
-                    "Save correction?",
-                    f"You edited Coda's reply{who}.\n\n"
-                    "Save this so Coda learns from it?"):
+            if not messagebox.askyesno("Save for learning?",
+                                       f"Save this correction{who} so Coda learns from it?"):
                 return
 
         correction = {
@@ -924,7 +922,8 @@ class EmailApp:
             'original': original,
             'sent':     sent,
         }
-
+        contacts = load_contacts()
+        idx = find_contact_idx(sender_email, contacts)
         if idx is not None:
             contacts[idx].setdefault('corrections', []).append(correction)
             contacts[idx]['corrections'] = contacts[idx]['corrections'][-10:]
