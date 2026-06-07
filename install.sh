@@ -162,7 +162,7 @@ echo ""
 hr
 echo ""
 ask "Email Agent setup  (reads inbox, writes replies with AI)"
-echo "  This needs a Gmail App Password."
+echo -e "  ${GRAY}This needs a Gmail App Password — myaccount.google.com/apppasswords${NC}"
 echo ""
 read -p "  Set up Email Agent now? [y/N]: " SETUP_EMAIL
 
@@ -178,7 +178,8 @@ if [ "${SETUP_EMAIL,,}" = "y" ]; then
     read -p "  Email: " EMAIL_ADDR
     echo ""
     ask "App Password:"
-    echo -e "  ${GRAY}16 characters — get it at myaccount.google.com → Security → App Passwords${NC}"
+    echo -e "  ${GRAY}16 characters — get it at myaccount.google.com/apppasswords${NC}"
+    echo -e "  ${GRAY}(requires 2-Step Verification to be enabled on your Google account)${NC}"
     read -s -p "  App Password: " APP_PASSWORD
     echo ""
 fi
