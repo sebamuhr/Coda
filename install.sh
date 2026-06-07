@@ -456,9 +456,9 @@ ok "'${ALIAS_NAME}' command ready  (run: source ~/.bashrc)"
 step 8 "Setting up desktop integration..."
 
 # Nautilus right-click extension
-sudo mkdir -p /usr/share/nautilus-python/extensions/
-sudo curl -fsSL "${REPO}/coda_extension.py" \
-     -o /usr/share/nautilus-python/extensions/coda_extension.py -q
+mkdir -p "$HOME/.local/share/nautilus-python/extensions/"
+curl -fsSL "${REPO}/coda_extension.py" \
+     -o "$HOME/.local/share/nautilus-python/extensions/coda_extension.py" -q
 nautilus -q 2>/dev/null || true
 ok "Right-click 'Call Coda' installed"
 

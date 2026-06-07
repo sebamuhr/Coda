@@ -571,12 +571,17 @@ class PreferencesApp:
         except Exception:
             pass
 
-        # Remove Nautilus extension
+        # Remove Nautilus extension (user-local, no sudo needed)
+        for ext_path in [
+            '~/.local/share/nautilus-python/extensions/coda_extension.py',
+            '/usr/share/nautilus-python/extensions/coda_extension.py',
+        ]:
+            try:
+                os.remove(os.path.expanduser(ext_path))
+            except Exception:
+                pass
         try:
-            subprocess.run(
-                ['sudo', 'rm', '-f',
-                 '/usr/share/nautilus-python/extensions/coda_extension.py'],
-                timeout=10, capture_output=True)
+            subprocess.run(['nautilus', '-q'], capture_output=True, timeout=3)
         except Exception:
             pass
 
