@@ -164,7 +164,7 @@ Get a free Gemini API key at [aistudio.google.com](https://aistudio.google.com).
 ### One-line install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sebamuhr/Coda/main/install.sh | bash
+bash <(curl -fsSL https://raw.githubusercontent.com/sebamuhr/Coda/main/install.sh)
 ```
 
 The installer walks you through everything interactively:

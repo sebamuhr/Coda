@@ -6,16 +6,6 @@
 
 set -e
 
-# Allow interactive prompts even when piped (curl | bash)
-if [ ! -t 0 ]; then
-    exec < /dev/tty 2>/dev/null || {
-        echo ""
-        echo "  Error: cannot open terminal for interactive input."
-        echo "  Run with:  bash <(curl -fsSL https://raw.githubusercontent.com/sebamuhr/Coda/main/install.sh)"
-        exit 1
-    }
-fi
-
 REPO="https://raw.githubusercontent.com/sebamuhr/Coda/main"
 CODA_DIR="$HOME/Coda"
 CONFIG_DIR="$HOME/.config/coda"
