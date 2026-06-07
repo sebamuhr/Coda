@@ -309,7 +309,7 @@ import urllib.request, json, os, sys
 url = os.environ['EMAIL_OLLAMA_URL']
 
 # Pull qwen2.5:3b — streaming so the connection stays alive
-data = json.dumps({'name': 'qwen2.5:3b', 'stream': True}).encode()
+data = json.dumps({'model': 'qwen2.5:3b', 'stream': True}).encode()
 req  = urllib.request.Request(f'{url}/api/pull', data=data,
                                headers={'Content-Type': 'application/json'})
 try:
@@ -335,15 +335,16 @@ except Exception as e:
     print(f'\n    Error during download: {e}', file=sys.stderr)
     sys.exit(1)
 
-# Create coda2.0:3b — streaming
+# Create coda2.0:3b using current Ollama API (from + system fields)
 print('    Creating coda2.0:3b…')
-modelfile = (
-    'FROM qwen2.5:3b\n'
-    'SYSTEM "You write emails on behalf of the user. '
-    'Write naturally and concisely in their voice. '
-    'Do not use robotic phrases or unnecessary pleasantries."'
-)
-data = json.dumps({'name': 'coda2.0:3b', 'modelfile': modelfile, 'stream': True}).encode()
+data = json.dumps({
+    'model': 'coda2.0:3b',
+    'from': 'qwen2.5:3b',
+    'system': ('You write emails on behalf of the user. '
+               'Write naturally and concisely in their voice. '
+               'Do not use robotic phrases or unnecessary pleasantries.'),
+    'stream': True
+}).encode()
 req  = urllib.request.Request(f'{url}/api/create', data=data,
                                headers={'Content-Type': 'application/json'})
 try:
