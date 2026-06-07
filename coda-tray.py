@@ -401,17 +401,30 @@ def start_badge_monitor(icon):
 def launch_coda(icon=None, query=None):
     def _pick_and_launch():
         try:
-            import tkinter as tk
-            from tkinter import filedialog, ttk
-            root = tk.Tk()
-            root.withdraw()
-            ttk.Style(root).theme_use('clam')
-            folder = filedialog.askdirectory(
-                title="Coda — Choose your project folder",
-                initialdir=os.path.expanduser('~/'),
-                parent=root,
-            )
-            root.destroy()
+            if PLATFORM == 'Darwin':
+                # filedialog calls NSOpenPanel which must run on the main thread;
+                # osascript runs in its own process so there are no thread restrictions
+                r = subprocess.run(
+                    ['osascript', '-e',
+                     'set f to choose folder with prompt "Choose your project folder:"\n'
+                     'return POSIX path of f'],
+                    capture_output=True, text=True
+                )
+                if r.returncode != 0:
+                    return
+                folder = r.stdout.strip().rstrip('/')
+            else:
+                import tkinter as tk
+                from tkinter import filedialog, ttk
+                root = tk.Tk()
+                root.withdraw()
+                ttk.Style(root).theme_use('clam')
+                folder = filedialog.askdirectory(
+                    title="Coda — Choose your project folder",
+                    initialdir=os.path.expanduser('~/'),
+                    parent=root,
+                )
+                root.destroy()
             if not folder:
                 return
             cfg      = load_config()
