@@ -17,7 +17,7 @@ from PIL import Image, ImageDraw, ImageFont
 PLATFORM = platform.system()  # 'Linux' or 'Darwin'
 
 # --- Paths ---
-CODA_DIR     = os.path.expanduser('~/coda-project')
+CODA_DIR     = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE  = os.path.expanduser('~/.config/coda/config.json')
 LOCK_FILE    = '/tmp/coda-tray.lock'
 RUNNING_FILE = '/tmp/coda-running'
