@@ -4,10 +4,13 @@
 #  https://github.com/sebamuhr/Coda
 # ═══════════════════════════════════════════════════════════════
 
+echo "[debug] script started"
 set -e
+echo "[debug] set -e ok"
 
 # Allow interactive prompts even when piped (curl | bash)
 exec < /dev/tty
+echo "[debug] tty redirect ok"
 
 REPO="https://raw.githubusercontent.com/sebamuhr/Coda/main"
 CODA_DIR="$HOME/Coda"
@@ -31,7 +34,9 @@ hr()   { echo "━━━━━━━━━━━━━━━━━━━━━�
 STEPS=8
 
 # ── Banner ────────────────────────────────────────────────────
+echo "[debug] about to clear screen"
 clear
+echo "[debug] screen cleared"
 echo ""
 echo -e "${BLUE}${BOLD}"
 cat << 'BANNER'
