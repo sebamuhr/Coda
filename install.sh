@@ -255,6 +255,7 @@ rm -rf "$HOME/aider-env"
 "$VENV_PYTHON" -m venv ~/aider-env
 source ~/aider-env/bin/activate
 pip install --upgrade pip setuptools wheel -q
+pip install --no-cache-dir "numpy>=2.0"
 pip install --no-cache-dir --prefer-binary aider-chat
 deactivate
 ok "Aider installed in ~/aider-env"
