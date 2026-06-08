@@ -552,6 +552,10 @@ if [ "$OS" = "Darwin" ]; then
     <true/>
     <key>KeepAlive</key>
     <false/>
+    <key>StandardOutPath</key>
+    <string>${HOME}/.coda-error.log</string>
+    <key>StandardErrorPath</key>
+    <string>${HOME}/.coda-error.log</string>
 </dict>
 </plist>
 PLISTEOF
@@ -563,7 +567,7 @@ PLISTEOF
     mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
     cat > "$APP_DIR/Contents/MacOS/Coda" << EXECEOF
 #!/bin/bash
-exec "${PYTHON_BIN}" "${CODA_DIR}/coda-tray.py"
+exec "${PYTHON_BIN}" "${CODA_DIR}/coda-tray.py" >> "$HOME/.coda-error.log" 2>&1
 EXECEOF
     chmod +x "$APP_DIR/Contents/MacOS/Coda"
 

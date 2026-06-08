@@ -29,10 +29,17 @@ def is_already_running():
         try:
             with open(LOCK_FILE) as f:
                 pid = int(f.read().strip())
-            os.kill(pid, 0)
-            return True
+            os.kill(pid, 0)  # raises OSError if dead
+            # Verify the PID belongs to coda-tray, not a recycled process
+            r = subprocess.run(['ps', '-p', str(pid), '-o', 'args='],
+                               capture_output=True, text=True)
+            if 'coda-tray' in r.stdout:
+                return True
         except (OSError, ValueError):
             pass
+        # Stale lock — remove it
+        try: os.remove(LOCK_FILE)
+        except Exception: pass
     return False
 
 def write_lock():
@@ -600,7 +607,10 @@ def main():
 
     write_lock()
     generate_desktop_icon()
-    show_splash()
+    try:
+        show_splash()
+    except Exception:
+        pass  # splash is cosmetic — don't let it block tray startup
 
     icon = pystray.Icon("Coda", create_icon(), "Coda", menu=build_menu())
 
@@ -611,4 +621,13 @@ def main():
     icon.run(setup)
 
 if __name__ == '__main__':
-    main()
+    log_path = os.path.expanduser('~/.coda-error.log')
+    try:
+        main()
+    except Exception as e:
+        import traceback
+        with open(log_path, 'a') as _lf:
+            import datetime
+            _lf.write(f"\n--- {datetime.datetime.now()} ---\n")
+            traceback.print_exc(file=_lf)
+        raise
