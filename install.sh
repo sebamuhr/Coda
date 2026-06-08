@@ -279,14 +279,14 @@ echo ""
 # macOS: install Ollama via brew if missing, then start the service
 if [ "$OS" = "Darwin" ]; then
     if ! command -v ollama &>/dev/null; then
-        echo -e "  ${CYAN}Installing Ollama via Homebrew…${NC}"
-        brew install ollama -q
+        echo -e "  ${CYAN}Installing Ollama…${NC}"
+        brew install --cask ollama 2>/dev/null || brew install ollama -q
         ok "Ollama installed"
     fi
     if ! curl -s --connect-timeout 3 "http://localhost:11434" 2>/dev/null | grep -q "Ollama"; then
-        echo -e "  ${CYAN}Starting Ollama service…${NC}"
-        brew services start ollama 2>/dev/null || true
-        sleep 4
+        echo -e "  ${CYAN}Starting Ollama…${NC}"
+        open -a Ollama 2>/dev/null || brew services start ollama 2>/dev/null || true
+        sleep 6
     fi
     EMAIL_OLLAMA_IP="localhost"
     EMAIL_OLLAMA_URL="http://localhost:11434"

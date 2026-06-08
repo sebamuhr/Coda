@@ -121,23 +121,19 @@ def build_aider_cmd(folder, cfg, marker):
     )
 
 # --- Icon helpers ---
-def _ithaca(size):
-    path = os.path.join(CODA_DIR, 'ithaca-font', 'Ithaca-LVB75.ttf')
-    try:
-        return ImageFont.truetype(path, size)
-    except Exception:
-        return ImageFont.load_default()
+def _draw_C_arc(draw, size, color='black'):
+    """Draw a bold C as a geometric arc — no font dependency."""
+    cx, cy = size / 2, size / 2
+    r  = size * 0.32          # arc centre-line radius
+    lw = max(4, int(size / 9)) # stroke width
+    box = [cx - r, cy - r, cx + r, cy + r]
+    draw.arc(box, start=40, end=320, fill=color, width=lw)
 
-def _draw_C(draw, canvas, font_size, border=2):
+def _draw_C(draw, canvas, border=2):
     p = max(1, border // 2)
     draw.ellipse([p, p, canvas - p, canvas - p],
                  fill='white', outline='black', width=border)
-    font = _ithaca(font_size)
-    bb = draw.textbbox((0, 0), 'C', font=font)
-    w, h = bb[2] - bb[0], bb[3] - bb[1]
-    x = (canvas - w) / 2 - bb[0] + canvas * 0.03  # slight rightward optical shift
-    y = (canvas - h) / 2 - bb[1]
-    draw.text((x, y), 'C', fill='black', font=font)
+    _draw_C_arc(draw, canvas)
 
 # --- Icon (fill level: 0=white, 1=green sliver, 10=full red) ---
 def create_icon(count=0):
@@ -167,14 +163,7 @@ def create_icon(count=0):
 
     draw = ImageDraw.Draw(img)
     draw.ellipse([1, 1, 63, 63], outline='black', width=2)
-    font = _ithaca(54)
-    try:
-        draw.text((SIZE / 2 + SIZE * 0.03, SIZE / 2), 'C', fill='black', font=font, anchor='mm')
-    except TypeError:
-        bb = draw.textbbox((0, 0), 'C', font=font)
-        w, h = bb[2] - bb[0], bb[3] - bb[1]
-        draw.text(((SIZE - w) / 2 - bb[0] + SIZE * 0.03,
-                   (SIZE - h) / 2 - bb[1]), 'C', fill='black', font=font)
+    _draw_C_arc(draw, SIZE)
     return img
 
 def generate_desktop_icon():
@@ -182,7 +171,7 @@ def generate_desktop_icon():
         return
     SIZE = 256
     img  = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
-    _draw_C(ImageDraw.Draw(img), SIZE, 185, border=8)
+    _draw_C(ImageDraw.Draw(img), SIZE, border=8)
     img.save(os.path.expanduser('~/.local/share/icons/coda.png'))
 
 # --- Notification ---
