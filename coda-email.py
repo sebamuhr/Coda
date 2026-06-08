@@ -407,6 +407,12 @@ def ask_coda(context, instruction, mode='reply', contact_prompt='', corrections_
         if 'response' in data:
             return data['response']
         err = data.get('error', str(data))
+        if 'llama-server' in err:
+            return (
+                "⚠ Ollama is running an old broken version (missing llama-server).\n\n"
+                "Fix: quit the Ollama menu bar icon, then open Ollama.app from /Applications "
+                "and wait a few seconds for it to start."
+            )
         return f"Model not ready: {err}\n\nOpen Preferences → Email tab → Pull Model to install coda2.0:3b."
     except Exception as e:
         return f"Error calling Coda: {e}"
@@ -428,7 +434,15 @@ def ask_coda_stream(context, instruction, mode='reply', contact_prompt='', corre
                     if token:
                         yield token
                     elif obj.get('error'):
-                        yield f"⚠ Ollama error: {obj['error']}"
+                        err = obj['error']
+                        if 'llama-server' in err:
+                            yield (
+                                "⚠ Ollama is running an old broken version (missing llama-server).\n\n"
+                                "Fix: quit the Ollama menu bar icon, then open Ollama.app from "
+                                "/Applications and wait a few seconds for it to start."
+                            )
+                        else:
+                            yield f"⚠ Ollama error: {err}"
                         return
                 except Exception:
                     pass

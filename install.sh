@@ -276,8 +276,15 @@ echo -e "  ${CYAN}The Email Assistant uses a dedicated local model (coda2.0:3b).
 echo "  This is completely separate from your Call Coda setup."
 echo ""
 
-# macOS: ensure official Ollama.app is installed (never use Homebrew formula)
+# macOS: ensure official Ollama.app is installed and running (never use Homebrew formula)
 if [ "$OS" = "Darwin" ]; then
+    # Kill any running Ollama processes — Homebrew 0.30.x may be alive on port 11434
+    # and will keep serving even after we uninstall the formula
+    if pgrep -f ollama &>/dev/null; then
+        warn "Stopping existing Ollama process (may be broken Homebrew version)…"
+        pkill -f ollama 2>/dev/null || true
+        sleep 2
+    fi
     # Remove broken Homebrew formula if present (0.30.x missing llama-server)
     if brew list --formula ollama &>/dev/null 2>&1; then
         warn "Removing broken Ollama Homebrew formula…"
@@ -300,11 +307,10 @@ if [ "$OS" = "Darwin" ]; then
         rm -rf /tmp/ollama_extract
         ok "Ollama installed"
     fi
-    if ! curl -s --connect-timeout 3 "http://localhost:11434" 2>/dev/null | grep -q "Ollama"; then
-        echo -e "  ${CYAN}Starting Ollama…${NC}"
-        open -a Ollama 2>/dev/null || true
-        sleep 8
-    fi
+    # Always start Ollama.app fresh (not any previously running process)
+    echo -e "  ${CYAN}Starting Ollama.app…${NC}"
+    open -a Ollama 2>/dev/null || true
+    sleep 8
     EMAIL_OLLAMA_IP="localhost"
     EMAIL_OLLAMA_URL="http://localhost:11434"
 else
