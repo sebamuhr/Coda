@@ -317,14 +317,16 @@ while true; do
                 ;;
             2) ;;
             3)
-                if [ "$OS" = "Darwin" ]; then
-                    warn "Download and install Ollama from ollama.com, then re-run this installer."
-                    EMAIL_OLLAMA_IP="localhost"
-                    break
-                fi
                 echo ""
-                echo "  Installing Ollama..."
-                curl -fsSL https://ollama.com/install.sh | sh
+                if [ "$OS" = "Darwin" ]; then
+                    echo "  Installing Ollama via Homebrew..."
+                    brew install ollama -q
+                    echo "  Starting Ollama service..."
+                    brew services start ollama
+                else
+                    echo "  Installing Ollama..."
+                    curl -fsSL https://ollama.com/install.sh | sh
+                fi
                 echo ""
                 echo "  Waiting for Ollama to start..."
                 sleep 4
