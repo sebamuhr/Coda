@@ -508,13 +508,54 @@ class PreferencesApp:
 
         ttk.Separator(f).grid(row=6, column=0, columnspan=2, sticky='ew', pady=16)
 
-        ttk.Label(f, text="Uninstall", font=('', 11, 'bold')).grid(row=7, column=0, columnspan=2, sticky='w', pady=(0, 6))
-        ttk.Button(f, text='🗑  Uninstall Coda', command=self._uninstall,
-                   width=20).grid(row=8, column=0, sticky='w')
-        ttk.Label(f, text="Removes all Coda files, config, contacts,\nlearned data, shortcuts and the AI model.",
+        ttk.Label(f, text="Update", font=('', 11, 'bold')).grid(row=7, column=0, columnspan=2, sticky='w', pady=(0, 6))
+        upd_row = tk.Frame(f)
+        upd_row.grid(row=8, column=0, columnspan=2, sticky='w')
+        self._update_btn = ttk.Button(upd_row, text='Update Coda', command=self._update_coda, width=16)
+        self._update_btn.pack(side='left')
+        self._update_status = ttk.Label(upd_row, text='', foreground='gray', font=('', 9))
+        self._update_status.pack(side='left', padx=10)
+        ttk.Label(f, text="Downloads the latest version from GitHub and restarts.",
                   foreground='gray', font=('', 8)).grid(row=9, column=0, columnspan=2, sticky='w', pady=(4, 0))
 
+        ttk.Separator(f).grid(row=10, column=0, columnspan=2, sticky='ew', pady=16)
+
+        ttk.Label(f, text="Uninstall", font=('', 11, 'bold')).grid(row=11, column=0, columnspan=2, sticky='w', pady=(0, 6))
+        ttk.Button(f, text='🗑  Uninstall Coda', command=self._uninstall,
+                   width=20).grid(row=12, column=0, sticky='w')
+        ttk.Label(f, text="Removes all Coda files, config, contacts,\nlearned data, shortcuts and the AI model.",
+                  foreground='gray', font=('', 8)).grid(row=13, column=0, columnspan=2, sticky='w', pady=(4, 0))
+
         f.columnconfigure(1, weight=1)
+
+    def _update_coda(self):
+        self._update_btn.config(state='disabled')
+        self._update_status.config(text='Checking for updates…', foreground='gray')
+        threading.Thread(target=self._do_update, daemon=True).start()
+
+    def _do_update(self):
+        coda_dir = os.path.dirname(os.path.abspath(__file__))
+        try:
+            result = subprocess.run(
+                ['git', 'pull'],
+                cwd=coda_dir, capture_output=True, text=True, timeout=30
+            )
+            output = (result.stdout + result.stderr).strip()
+            if result.returncode != 0:
+                msg = output[:120] or 'git pull failed'
+                self.root.after(0, lambda: self._update_status.config(text=f'Error: {msg}', foreground='red'))
+                self.root.after(0, lambda: self._update_btn.config(state='normal'))
+                return
+            if 'Already up to date' in output:
+                self.root.after(0, lambda: self._update_status.config(text='Already up to date.', foreground='gray'))
+                self.root.after(0, lambda: self._update_btn.config(state='normal'))
+            else:
+                self.root.after(0, lambda: self._update_status.config(text='Updated!', foreground='green'))
+                self.root.after(0, lambda: self._update_btn.config(state='normal'))
+                self.root.after(200, self._ask_restart)
+        except Exception as e:
+            self.root.after(0, lambda: self._update_status.config(text=f'Error: {e}', foreground='red'))
+            self.root.after(0, lambda: self._update_btn.config(state='normal'))
 
     def _uninstall(self):
         if not messagebox.askyesno(
