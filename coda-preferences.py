@@ -535,6 +535,8 @@ class PreferencesApp:
 
     def _do_update(self):
         coda_dir = os.path.dirname(os.path.abspath(__file__))
+        if not os.path.isdir(os.path.join(coda_dir, '.git')):
+            coda_dir = os.path.expanduser('~/coda-project')
         try:
             result = subprocess.run(
                 ['git', 'pull'],
