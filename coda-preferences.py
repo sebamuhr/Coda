@@ -203,9 +203,14 @@ class PreferencesApp:
         self._load_values()
 
     def _build_ui(self):
+        # Pack button bar first so it's always anchored to the bottom
+        btn_frame = tk.Frame(self.root)
+        btn_frame.pack(side='bottom', fill='x', padx=10, pady=(0, 10))
+        ttk.Button(btn_frame, text='Save', command=self._save, width=14).pack(side='right')
+        ttk.Button(btn_frame, text='Cancel', command=self.root.destroy, width=10).pack(side='right', padx=6)
 
         nb = ttk.Notebook(self.root)
-        nb.pack(fill='both', expand=True, padx=10, pady=10)
+        nb.pack(fill='both', expand=True, padx=10, pady=(10, 0))
 
         self.tab_ai    = ttk.Frame(nb, padding=16)
         self.tab_email = ttk.Frame(nb, padding=16)
@@ -218,12 +223,6 @@ class PreferencesApp:
         self._build_ai_tab()
         self._build_email_tab()
         self._build_general_tab()
-
-        # Save button
-        btn_frame = tk.Frame(self.root)
-        btn_frame.pack(fill='x', padx=10, pady=(0, 10))
-        ttk.Button(btn_frame, text='Save', command=self._save, width=14).pack(side='right')
-        ttk.Button(btn_frame, text='Cancel', command=self.root.destroy, width=10).pack(side='right', padx=6)
 
     # ── AI Provider tab ──────────────────────────────
     def _build_ai_tab(self):

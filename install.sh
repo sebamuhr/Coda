@@ -227,9 +227,9 @@ ok "Done"
 
 # ── 2: Python packages ─────────────────────────────────────────
 step 2 "Installing Python packages..."
-python3 -m pip install pystray pillow --break-system-packages -q 2>/dev/null \
-    || python3 -m pip install pystray pillow --user -q
-ok "pystray and pillow installed"
+python3 -m pip install pystray pillow requests --break-system-packages -q 2>/dev/null \
+    || python3 -m pip install pystray pillow requests --user -q
+ok "pystray, pillow and requests installed"
 
 # ── 3: Aider ───────────────────────────────────────────────────
 step 3 "Setting up Aider  (the coding engine)..."
@@ -557,6 +557,33 @@ if [ "$OS" = "Darwin" ]; then
 PLISTEOF
     launchctl load "$PLIST_DIR/com.coda.plist" 2>/dev/null || true
     ok "LaunchAgent installed — Coda will start on login"
+
+    # Create Coda.app so it appears in Spotlight and Launchpad
+    APP_DIR="$HOME/Applications/Coda.app"
+    mkdir -p "$APP_DIR/Contents/MacOS"
+    cat > "$APP_DIR/Contents/MacOS/Coda" << EXECEOF
+#!/bin/bash
+exec "${PYTHON_BIN}" "${CODA_DIR}/coda-tray.py"
+EXECEOF
+    chmod +x "$APP_DIR/Contents/MacOS/Coda"
+    cat > "$APP_DIR/Contents/Info.plist" << INFOPEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key><string>Coda</string>
+    <key>CFBundleDisplayName</key><string>Coda</string>
+    <key>CFBundleIdentifier</key><string>com.sebamuhr.coda</string>
+    <key>CFBundleVersion</key><string>1.0</string>
+    <key>CFBundleExecutable</key><string>Coda</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>LSUIElement</key><true/>
+</dict>
+</plist>
+INFOPEOF
+    # Force Spotlight to index the new app
+    mdimport "$APP_DIR" 2>/dev/null || true
+    ok "Coda.app created in ~/Applications — search 'Coda' in Spotlight to relaunch"
 else
     # Nautilus right-click extension
     mkdir -p "$HOME/.local/share/nautilus-python/extensions/"

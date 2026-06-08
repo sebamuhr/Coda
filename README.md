@@ -178,9 +178,10 @@ The installer detects your platform and walks you through everything interactive
 
 **macOS notes:**
 - Requires [Homebrew](https://brew.sh) — the installer will check for it
-- Ollama on macOS is a native app — download it from [ollama.com](https://ollama.com) before running the installer if you want local models
+- Ollama is auto-installed via Homebrew if not already present
 - The alias is written to `~/.zshrc`
 - Coda starts on login via a LaunchAgent (`~/Library/LaunchAgents/com.coda.plist`)
+- `Coda.app` is created in `~/Applications` — search **Coda** in Spotlight to relaunch it anytime
 
 ### Manual install
 
