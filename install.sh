@@ -498,6 +498,7 @@ PYEOF
 EMAIL_ADDR="$EMAIL_ADDR" APP_PASSWORD="$APP_PASSWORD" \
 IMAP_SERVER="$IMAP_SERVER" SMTP_SERVER="$SMTP_SERVER" \
 EMAIL_PROVIDER="$EMAIL_PROVIDER" EMAIL_OLLAMA_IP="$EMAIL_OLLAMA_IP" \
+USER_NAME="$USER_NAME" \
 python3 << 'PYEOF'
 import os
 lines = [
@@ -507,6 +508,7 @@ lines = [
     f"SMTP_SERVER={os.environ['SMTP_SERVER']}",
     f"PROVIDER={os.environ['EMAIL_PROVIDER']}",
     f"EMAIL_OLLAMA_IP={os.environ['EMAIL_OLLAMA_IP']}",
+    f"USER_NAME={os.environ.get('USER_NAME', '')}",
 ]
 path = os.path.expanduser("~/.config/coda/email.conf")
 os.makedirs(os.path.dirname(path), exist_ok=True)

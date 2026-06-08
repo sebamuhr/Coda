@@ -371,6 +371,9 @@ def send_email(to, subject, body, selected_email=None):
         smtp.sendmail(cfg.get('EMAIL', ''), to, msg.as_bytes())
 
 def _build_prompt(context, instruction, mode, contact_prompt, corrections_context):
+    cfg = _cfg()
+    name = cfg.get('USER_NAME', '').strip() or 'me'
+    sign_off = f"Sign off as {name}."
     extra = ''
     if contact_prompt:
         extra += f"\n\nSPECIAL INSTRUCTIONS FOR THIS CONTACT:\n{contact_prompt}"
@@ -380,13 +383,13 @@ def _build_prompt(context, instruction, mode, contact_prompt, corrections_contex
         return (
             "You are an email assistant. Write an email based on the instruction below.\n\n"
             f"INSTRUCTION:\n{instruction}{extra}\n\n"
-            "Write only the email body. No subject line. Sign off as Sebastian."
+            f"Write only the email body. No subject line. {sign_off}"
         )
     return (
         "You are an email assistant. Based on the email conversation below, write a reply.\n\n"
         f"EMAIL CONTEXT:\n{context}\n\n"
         f"USER INSTRUCTION:\n{instruction}{extra}\n\n"
-        "Write only the email body. No subject line. Sign off as Sebastian."
+        f"Write only the email body. No subject line. {sign_off}"
     )
 
 def _ollama_url():

@@ -140,6 +140,7 @@ def write_email_conf(cfg):
         f"THEME={cfg.get('theme', 'light')}",
         f"LEARNING_MODE={cfg.get('learning_mode', 'silent')}",
         f"EMAIL_OLLAMA_IP={cfg.get('email_ollama_ip', 'localhost')}",
+        f"USER_NAME={cfg.get('user_name', '')}",
     ]
     os.makedirs(os.path.dirname(EMAIL_CONF), exist_ok=True)
     with open(EMAIL_CONF, 'w') as f:
