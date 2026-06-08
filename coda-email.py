@@ -423,9 +423,13 @@ def ask_coda_stream(context, instruction, mode='reply', contact_prompt='', corre
         for line in resp.iter_lines():
             if line:
                 try:
-                    token = json.loads(line).get('response', '')
+                    obj = json.loads(line)
+                    token = obj.get('response', '')
                     if token:
                         yield token
+                    elif obj.get('error'):
+                        yield f"⚠ Ollama error: {obj['error']}"
+                        return
                 except Exception:
                     pass
     except Exception as e:

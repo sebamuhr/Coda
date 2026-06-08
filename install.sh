@@ -278,15 +278,20 @@ echo ""
 
 # macOS: install Ollama via brew if missing, then start the service
 if [ "$OS" = "Darwin" ]; then
-    if ! command -v ollama &>/dev/null; then
+    # If the broken formula version is installed, replace it with the cask (official app)
+    if brew list --formula ollama &>/dev/null 2>&1; then
+        warn "Removing broken Ollama formula and installing official Ollama app…"
+        brew uninstall --formula ollama 2>/dev/null || true
+    fi
+    if ! [ -d "/Applications/Ollama.app" ] && ! command -v ollama &>/dev/null; then
         echo -e "  ${CYAN}Installing Ollama…${NC}"
-        brew install --cask ollama 2>/dev/null || brew install ollama -q
+        brew install --cask ollama
         ok "Ollama installed"
     fi
     if ! curl -s --connect-timeout 3 "http://localhost:11434" 2>/dev/null | grep -q "Ollama"; then
         echo -e "  ${CYAN}Starting Ollama…${NC}"
-        open -a Ollama 2>/dev/null || brew services start ollama 2>/dev/null || true
-        sleep 6
+        open -a Ollama 2>/dev/null || true
+        sleep 8
     fi
     EMAIL_OLLAMA_IP="localhost"
     EMAIL_OLLAMA_URL="http://localhost:11434"
