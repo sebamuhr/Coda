@@ -443,17 +443,26 @@ def launch_coda(icon=None, query=None):
             if PLATFORM == 'Darwin':
                 fd, script_path = tempfile.mkstemp(suffix='.sh', prefix='coda_launch_')
                 with os.fdopen(fd, 'w') as f:
-                    f.write(f'#!/bin/bash\nprintf "\\033]0;Coda · {provider}\\007"\n{cmd}\n')
+                    f.write(
+                        '#!/bin/bash\n'
+                        'source ~/.zshrc 2>/dev/null || source ~/.bashrc 2>/dev/null\n'
+                        f'printf "\\033]0;Coda · {provider}\\007"\n'
+                        f'{cmd}\n'
+                    )
                 os.chmod(script_path, 0o755)
                 subprocess.Popen([
                     'osascript', '-e',
                     f'tell application "Terminal" to do script "{script_path}"'
                 ])
             else:
+                full_cmd = (
+                    'source ~/.bashrc 2>/dev/null; '
+                    f'{cmd}'
+                )
                 subprocess.Popen([
                     'gnome-terminal',
                     f'--title=Coda · {provider}',
-                    '--', 'bash', '-c', cmd
+                    '--', 'bash', '-c', full_cmd
                 ])
             time.sleep(1)
             if icon:
