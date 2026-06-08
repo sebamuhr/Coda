@@ -535,29 +535,48 @@ class PreferencesApp:
 
     def _do_update(self):
         coda_dir = os.path.dirname(os.path.abspath(__file__))
-        if not os.path.isdir(os.path.join(coda_dir, '.git')):
-            coda_dir = os.path.expanduser('~/coda-project')
-        try:
-            result = subprocess.run(
-                ['git', 'pull'],
-                cwd=coda_dir, capture_output=True, text=True, timeout=30
-            )
-            output = (result.stdout + result.stderr).strip()
-            if result.returncode != 0:
-                msg = output[:120] or 'git pull failed'
-                self.root.after(0, lambda: self._update_status.config(text=f'Error: {msg}', foreground='red'))
-                self.root.after(0, lambda: self._update_btn.config(state='normal'))
-                return
-            if 'Already up to date' in output:
-                self.root.after(0, lambda: self._update_status.config(text='Already up to date.', foreground='gray'))
-                self.root.after(0, lambda: self._update_btn.config(state='normal'))
-            else:
-                self.root.after(0, lambda: self._update_status.config(text='Updated!', foreground='green'))
-                self.root.after(0, lambda: self._update_btn.config(state='normal'))
-                self.root.after(200, self._ask_restart)
-        except Exception as e:
-            self.root.after(0, lambda: self._update_status.config(text=f'Error: {e}', foreground='red'))
+        base_url = 'https://raw.githubusercontent.com/sebamuhr/Coda/main'
+        files = ['coda-tray.py', 'coda-email.py', 'coda-preferences.py']
+
+        def _err(msg):
+            self.root.after(0, lambda: self._update_status.config(text=f'Error: {msg}', foreground='red'))
             self.root.after(0, lambda: self._update_btn.config(state='normal'))
+
+        # If this is a git clone, use git pull
+        if os.path.isdir(os.path.join(coda_dir, '.git')):
+            try:
+                result = subprocess.run(
+                    ['git', 'pull'],
+                    cwd=coda_dir, capture_output=True, text=True, timeout=30
+                )
+                output = (result.stdout + result.stderr).strip()
+                if result.returncode != 0:
+                    return _err(output[:120] or 'git pull failed')
+                if 'Already up to date' in output:
+                    self.root.after(0, lambda: self._update_status.config(text='Already up to date.', foreground='gray'))
+                    self.root.after(0, lambda: self._update_btn.config(state='normal'))
+                else:
+                    self.root.after(0, lambda: self._update_status.config(text='Updated!', foreground='green'))
+                    self.root.after(0, lambda: self._update_btn.config(state='normal'))
+                    self.root.after(200, self._ask_restart)
+            except Exception as e:
+                _err(str(e)[:120])
+            return
+
+        # Installer layout — download files directly from GitHub
+        try:
+            for f in files:
+                result = subprocess.run(
+                    ['curl', '-fsSL', f'{base_url}/{f}', '-o', os.path.join(coda_dir, f)],
+                    capture_output=True, text=True, timeout=60
+                )
+                if result.returncode != 0:
+                    return _err(result.stderr.strip()[:120] or f'Failed to download {f}')
+            self.root.after(0, lambda: self._update_status.config(text='Updated! Restart to apply.', foreground='green'))
+            self.root.after(0, lambda: self._update_btn.config(state='normal'))
+            self.root.after(200, self._ask_restart)
+        except Exception as e:
+            _err(str(e)[:120])
 
     def _uninstall(self):
         if not messagebox.askyesno(
