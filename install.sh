@@ -274,15 +274,31 @@ step 5 "Setting up Email AI (coda2.0:3b)..."
 echo ""
 echo -e "  ${CYAN}The Email Assistant uses a dedicated local model (coda2.0:3b).${NC}"
 echo "  This is completely separate from your Call Coda setup."
-echo "  You need Ollama running — get it free at ollama.com"
 echo ""
-ask "Where is Ollama running for the Email Assistant?"
-echo -e "  ${GRAY}Enter 'localhost' if Ollama is on this machine, or an IP like 192.168.1.50${NC}"
-read -p "  Ollama IP [localhost]: " EMAIL_OLLAMA_IP
-EMAIL_OLLAMA_IP=${EMAIL_OLLAMA_IP:-localhost}
-EMAIL_OLLAMA_IP="${EMAIL_OLLAMA_IP#http://}"
-EMAIL_OLLAMA_IP="${EMAIL_OLLAMA_IP%%:*}"
-EMAIL_OLLAMA_URL="http://${EMAIL_OLLAMA_IP}:11434"
+
+# macOS: install Ollama via brew if missing, then start the service
+if [ "$OS" = "Darwin" ]; then
+    if ! command -v ollama &>/dev/null; then
+        echo -e "  ${CYAN}Installing Ollama via Homebrew…${NC}"
+        brew install ollama -q
+        ok "Ollama installed"
+    fi
+    if ! curl -s --connect-timeout 3 "http://localhost:11434" 2>/dev/null | grep -q "Ollama"; then
+        echo -e "  ${CYAN}Starting Ollama service…${NC}"
+        brew services start ollama 2>/dev/null || true
+        sleep 4
+    fi
+    EMAIL_OLLAMA_IP="localhost"
+    EMAIL_OLLAMA_URL="http://localhost:11434"
+else
+    ask "Where is Ollama running for the Email Assistant?"
+    echo -e "  ${GRAY}Enter 'localhost' if Ollama is on this machine, or an IP like 192.168.1.50${NC}"
+    read -p "  Ollama IP [localhost]: " EMAIL_OLLAMA_IP
+    EMAIL_OLLAMA_IP=${EMAIL_OLLAMA_IP:-localhost}
+    EMAIL_OLLAMA_IP="${EMAIL_OLLAMA_IP#http://}"
+    EMAIL_OLLAMA_IP="${EMAIL_OLLAMA_IP%%:*}"
+    EMAIL_OLLAMA_URL="http://${EMAIL_OLLAMA_IP}:11434"
+fi
 
 EMAIL_MODEL_READY=false
 
@@ -299,11 +315,7 @@ while true; do
         echo "  What would you like to do?"
         echo "    1) Try a different IP"
         echo "    2) Retry same address"
-        if [ "$OS" = "Darwin" ]; then
-            echo "    3) Install Ollama  (download from ollama.com and run the macOS app)"
-        else
-            echo "    3) Install Ollama on this machine  (free, runs locally)"
-        fi
+        echo "    3) Install Ollama on this machine  (free, runs locally)"
         echo "    4) Skip — set up later from Preferences → Email → Pull Model"
         echo ""
         read -p "  Choice [1]: " RETRY_CHOICE
@@ -321,7 +333,6 @@ while true; do
                 if [ "$OS" = "Darwin" ]; then
                     echo "  Installing Ollama via Homebrew..."
                     brew install ollama -q
-                    echo "  Starting Ollama service..."
                     brew services start ollama
                 else
                     echo "  Installing Ollama..."
