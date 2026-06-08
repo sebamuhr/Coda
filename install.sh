@@ -521,6 +521,9 @@ fi
     echo ""
     echo "# Coda - Local AI coding assistant"
     printf "alias %s='%s'\n" "$ALIAS_NAME" "$ALIAS_CMD"
+    if [ "$OS" = "Darwin" ]; then
+        printf "alias coda-start='launchctl start com.coda.tray || %s %s/coda-tray.py &'\n" "${PYTHON_BIN}" "${CODA_DIR}"
+    fi
 } >> "$RC_FILE"
 
 if [ "$OS" = "Darwin" ]; then

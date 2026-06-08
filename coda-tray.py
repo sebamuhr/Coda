@@ -533,8 +533,18 @@ def build_menu():
         Menu.SEPARATOR,
         item('Preferences', launch_preferences),
         Menu.SEPARATOR,
+        item('Restart', restart_app) if PLATFORM == 'Darwin' else item('Restart', restart_app, visible=False),
         item('Quit', quit_app),
     )
+
+# --- Restart (macOS) ---
+def restart_app(icon, query):
+    script = os.path.abspath(__file__)
+    def _relaunch():
+        time.sleep(1.5)
+        subprocess.Popen([sys.executable, script])
+    threading.Thread(target=_relaunch, daemon=True).start()
+    quit_app(icon, query)
 
 # --- Quit ---
 def quit_app(icon, query):
