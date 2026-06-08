@@ -97,15 +97,22 @@ def new_marker():
     return path
 
 # --- Aider command builder ---
+def _normalize_ollama_ip(raw):
+    """Accept an IP, hostname, or full URL — always return just the host."""
+    ip = (raw or "").strip()
+    ip = ip.replace("https://", "").replace("http://", "")
+    ip = ip.split(":")[0].strip("/")
+    return ip or "localhost"
+
 def build_aider_cmd(folder, cfg, marker):
     provider  = cfg.get("provider", "Ollama (local)")
     model     = cfg.get("model", "")
     api_key   = cfg.get("api_key", "")
-    ollama_ip = cfg.get("ollama_ip", "")
+    ollama_ip = _normalize_ollama_ip(cfg.get("ollama_ip", ""))
     activate  = "source ~/aider-env/bin/activate"
 
     if provider == "Ollama (local)":
-        base_url = f"http://{ollama_ip}:11434" if ollama_ip else "http://localhost:11434"
+        base_url = f"http://{ollama_ip}:11434"
         run = f"OLLAMA_API_BASE={base_url} aider --model ollama_chat/{model}"
     elif provider == "Gemini":
         run = f"GEMINI_API_KEY={api_key} aider --model gemini/{model or 'gemini-1.5-pro'}"
@@ -114,7 +121,7 @@ def build_aider_cmd(folder, cfg, marker):
     elif provider == "Claude":
         run = f"ANTHROPIC_API_KEY={api_key} aider --model {model or 'claude-opus-4-5'}"
     else:
-        base_url = f"http://{ollama_ip}:11434" if ollama_ip else "http://localhost:11434"
+        base_url = f"http://{ollama_ip}:11434"
         run = f"OLLAMA_API_BASE={base_url} aider --model ollama_chat/{model}"
 
     # touch marker on start, remove on any exit (close window, Ctrl-C, etc.)

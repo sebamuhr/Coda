@@ -154,10 +154,11 @@ def update_bashrc_alias(alias, cfg):
     provider = cfg.get('provider', 'Ollama (local)')
     model = cfg.get('model', '')
     api_key = cfg.get('api_key', '')
-    ollama_ip = cfg.get('ollama_ip', '')
+    _raw_ip = cfg.get('ollama_ip', '')
+    ollama_ip = _raw_ip.replace('https://', '').replace('http://', '').split(':')[0].strip('/') or 'localhost'
 
     if provider == "Ollama (local)":
-        base_url = f"http://{ollama_ip}:11434" if ollama_ip else "http://localhost:11434"
+        base_url = f"http://{ollama_ip}:11434"
         new_alias = (
             f"alias {alias}='source ~/aider-env/bin/activate && "
             f"OLLAMA_API_BASE={base_url} aider --model ollama_chat/{model}'"
