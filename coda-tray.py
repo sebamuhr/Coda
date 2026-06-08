@@ -628,6 +628,34 @@ def quit_app(icon, query):
     # the process on its own; this fires after 2s only if it somehow doesn't.
     threading.Timer(2.0, lambda: os._exit(0)).start()
 
+# --- macOS: auto-start Ollama as a background service if not already running ---
+def _ensure_ollama_mac():
+    """Start ollama serve silently if it's not reachable — no icon, no popup."""
+    import urllib.request
+    try:
+        urllib.request.urlopen('http://localhost:11434', timeout=3)
+        return  # Already running
+    except Exception:
+        pass
+    # Try via the LaunchAgent first (proper way)
+    subprocess.run(['launchctl', 'start', 'com.coda.ollama'], capture_output=True)
+    time.sleep(3)
+    try:
+        urllib.request.urlopen('http://localhost:11434', timeout=3)
+        return
+    except Exception:
+        pass
+    # Fallback: find the binary and start directly
+    for _bin in [
+        os.path.expanduser('~/.config/coda/bin/ollama'),
+        '/usr/local/bin/ollama',
+        os.path.expanduser('~/.local/bin/ollama'),
+    ]:
+        if os.path.isfile(_bin) and os.access(_bin, os.X_OK):
+            subprocess.Popen([_bin, 'serve'],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
+
 # --- Main ---
 def main():
     if is_already_running():
@@ -645,6 +673,8 @@ def main():
 
     def setup(ic):
         ic.visible = True
+        if PLATFORM == 'Darwin':
+            threading.Thread(target=_ensure_ollama_mac, daemon=True).start()
         start_badge_monitor(ic)
 
     icon.run(setup)

@@ -276,41 +276,86 @@ echo -e "  ${CYAN}The Email Assistant uses a dedicated local model (coda2.0:3b).
 echo "  This is completely separate from your Call Coda setup."
 echo ""
 
-# macOS: ensure official Ollama.app is installed and running (never use Homebrew formula)
+# macOS: run ollama as a headless background service — no icon, no app, just like Linux
 if [ "$OS" = "Darwin" ]; then
-    # Kill any running Ollama processes — Homebrew 0.30.x may be alive on port 11434
-    # and will keep serving even after we uninstall the formula
+    # Kill any running Ollama processes (Homebrew broken version, or Ollama.app)
     if pgrep -f ollama &>/dev/null; then
-        warn "Stopping existing Ollama process (may be broken Homebrew version)…"
+        warn "Stopping existing Ollama process…"
         pkill -f ollama 2>/dev/null || true
         sleep 2
     fi
-    # Remove broken Homebrew formula if present (0.30.x missing llama-server)
+    # Remove broken Homebrew formula if present
     if brew list --formula ollama &>/dev/null 2>&1; then
         warn "Removing broken Ollama Homebrew formula…"
         brew uninstall --formula ollama 2>/dev/null || true
     fi
-    # Install official Ollama.app if not present
-    if ! [ -d "/Applications/Ollama.app" ]; then
+
+    # Find or download the ollama CLI binary (headless server, no GUI)
+    OLLAMA_BIN=""
+    for _p in /usr/local/bin/ollama "$HOME/.local/bin/ollama" "$HOME/.config/coda/bin/ollama"; do
+        if [ -x "$_p" ]; then OLLAMA_BIN="$_p"; break; fi
+    done
+
+    if [ -z "$OLLAMA_BIN" ]; then
         echo -e "  ${CYAN}Downloading Ollama…${NC}"
-        # Get latest release URL from GitHub API (stable endpoint, version-independent)
-        _OLLAMA_URL=$(curl -sf "https://api.github.com/repos/ollama/ollama/releases/latest" \
-            | grep '"browser_download_url"' | grep 'darwin.*\.zip' \
-            | head -1 | cut -d'"' -f4)
-        # Fallback to known-good direct URL
-        [ -z "$_OLLAMA_URL" ] && _OLLAMA_URL="https://ollama.com/download/Ollama-darwin.zip"
-        curl -L "$_OLLAMA_URL" -o /tmp/Ollama-darwin.zip --progress-bar
-        unzip -o -q /tmp/Ollama-darwin.zip -d /tmp/ollama_extract 2>/dev/null
-        find /tmp/ollama_extract -name "*.app" -maxdepth 2 \
-            -exec mv -f {} /Applications/ \; 2>/dev/null || true
-        rm -f /tmp/Ollama-darwin.zip
-        rm -rf /tmp/ollama_extract
-        ok "Ollama installed"
+        mkdir -p "$HOME/.config/coda/bin"
+        _ARCH=$(uname -m)  # arm64 (Apple Silicon) or x86_64 (Intel)
+        _OLLAMA_BIN_URL=$(curl -sf "https://api.github.com/repos/ollama/ollama/releases/latest" | python3 -c "
+import sys, json
+arch = '$(uname -m)'
+data = json.load(sys.stdin)
+# Try arch-specific binary first, then universal darwin binary
+names = [f'ollama-darwin-{arch}', 'ollama-darwin']
+for name in names:
+    for a in data.get('assets', []):
+        if a.get('name') == name:
+            print(a['browser_download_url']); exit(0)
+" 2>/dev/null)
+        [ -z "$_OLLAMA_BIN_URL" ] && _OLLAMA_BIN_URL="https://github.com/ollama/ollama/releases/latest/download/ollama-darwin"
+        curl -L "$_OLLAMA_BIN_URL" -o "$HOME/.config/coda/bin/ollama" --progress-bar
+        chmod +x "$HOME/.config/coda/bin/ollama"
+        OLLAMA_BIN="$HOME/.config/coda/bin/ollama"
+        ok "Ollama downloaded"
+    else
+        ok "Ollama found at $OLLAMA_BIN"
     fi
-    # Always start Ollama.app fresh (not any previously running process)
-    echo -e "  ${CYAN}Starting Ollama.app…${NC}"
-    open -a Ollama 2>/dev/null || true
-    sleep 8
+
+    # LaunchAgent: runs 'ollama serve' on login — headless, no icon, always on
+    _OLLAMA_PLIST="$HOME/Library/LaunchAgents/com.coda.ollama.plist"
+    mkdir -p "$HOME/Library/LaunchAgents"
+    cat > "$_OLLAMA_PLIST" << OLLAMAPLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.coda.ollama</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${OLLAMA_BIN}</string>
+        <string>serve</string>
+    </array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>ThrottleInterval</key><integer>5</integer>
+    <key>StandardOutPath</key><string>${HOME}/.coda-error.log</string>
+    <key>StandardErrorPath</key><string>${HOME}/.coda-error.log</string>
+</dict>
+</plist>
+OLLAMAPLISTEOF
+    launchctl unload "$_OLLAMA_PLIST" 2>/dev/null || true
+    launchctl load "$_OLLAMA_PLIST" 2>/dev/null || true
+
+    # Wait for the server to be ready
+    echo -e "  ${CYAN}Starting Ollama server…${NC}"
+    _ready=false
+    for _i in $(seq 1 15); do
+        if curl -s --connect-timeout 2 "http://localhost:11434" 2>/dev/null | grep -q "Ollama"; then
+            ok "Ollama server ready"; _ready=true; break
+        fi
+        sleep 2
+    done
+    $_ready || warn "Ollama server didn't respond — continuing anyway"
+
     EMAIL_OLLAMA_IP="localhost"
     EMAIL_OLLAMA_URL="http://localhost:11434"
 else
