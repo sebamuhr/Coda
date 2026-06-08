@@ -39,7 +39,17 @@ This is Coda — a coding assistant and email agent that sits quietly in your sy
 
 ## Coding Assistant
 
-Right-click any project folder in your file manager → **Call Coda**.
+Start a coding session in three ways:
+
+- **C → Launch Coda** in the tray → pick a folder from the dialog
+- **Right-click any folder → Call Coda** in your file manager *(Linux only — see note below)*
+- From the terminal:
+
+```bash
+cd ~/my-project
+coda
+```
+
 A terminal opens with your AI ready to work on your files:
 
 ```
@@ -52,12 +62,9 @@ A terminal opens with your AI ready to work on your files:
 Every change Coda makes is automatically committed to git with a description.
 Type `/undo` to roll back the last change instantly.
 
-You can also launch from the tray (**C → Launch Coda** → pick a folder) or from the terminal:
-
-```bash
-cd ~/my-project
-coda
-```
+> **macOS note:** The right-click "Call Coda" option in Finder is not available on macOS.
+> macOS does not allow third-party apps to add custom right-click actions to Finder without a
+> signed App Extension. Use **C → Launch Coda** from the menu bar or the `coda` terminal command instead.
 
 ### Useful Aider commands inside a session
 
@@ -154,7 +161,7 @@ Get a free Gemini API key at [aistudio.google.com](https://aistudio.google.com).
 - **Linux** — Debian/Ubuntu based (tested on Zorin OS and Ubuntu)
 - **macOS** — Ventura or later
 - Python 3
-- For local models: [Ollama](https://ollama.ai) running locally or on a server on your network
+- For local models: Ollama (installed automatically by the installer)
 - For email: Gmail App Password, or any IMAP/SMTP provider
 - Linux only: Nautilus file manager (GNOME) for the right-click extension
 
@@ -178,10 +185,11 @@ The installer detects your platform and walks you through everything interactive
 
 **macOS notes:**
 - Requires [Homebrew](https://brew.sh) — the installer will check for it
-- Ollama is auto-downloaded and installed if not already present
+- Ollama is downloaded and runs as a hidden background service — no icon, no app to open
 - The alias is written to `~/.zshrc`
-- Coda starts on login via a LaunchAgent (`~/Library/LaunchAgents/com.coda.plist`)
+- Coda starts on login via a LaunchAgent — click the Coda icon in the menu bar to reopen it after quitting
 - `Coda.app` is created in `~/Applications` — search **Coda** in Spotlight to relaunch it anytime
+- Right-click "Call Coda" in Finder is **not available** on macOS — use **C → Launch Coda** or the `coda` terminal command
 
 ### Manual install
 
@@ -320,7 +328,7 @@ Your desktop
 │   ├── Preferences  ──────────────► configure everything
 │   └── Quit  ─────────────────────► closes everything cleanly
 │
-├── File manager right-click
+├── File manager right-click  (Linux only)
 │   └── Call Coda  ────────────────► coding terminal in that folder
 │
 └── Terminal
@@ -331,7 +339,7 @@ Your desktop
 
 ## Tips
 
-- The **Call Coda** right-click option only appears when Coda is running — quit from the tray and it disappears automatically
+- The **Call Coda** right-click option (Linux only) only appears when Coda is running — quit from the tray and it disappears automatically
 - The **fill level** on the C icon shows how many coding sessions are open — green for few, yellow for several, red when busy (max 10)
 - **Save to Drafts** is safer for email — review in Gmail before sending
 - Use `/add .` in a coding session to let Coda see all your project files
