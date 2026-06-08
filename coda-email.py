@@ -403,7 +403,11 @@ def ask_coda(context, instruction, mode='reply', contact_prompt='', corrections_
             json={'model': 'coda2.0:3b', 'prompt': prompt, 'stream': False},
             timeout=120,
         )
-        return resp.json()['response']
+        data = resp.json()
+        if 'response' in data:
+            return data['response']
+        err = data.get('error', str(data))
+        return f"Model not ready: {err}\n\nOpen Preferences → Email tab → Pull Model to install coda2.0:3b."
     except Exception as e:
         return f"Error calling Coda: {e}"
 

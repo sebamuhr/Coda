@@ -16,6 +16,15 @@ from PIL import Image, ImageDraw, ImageFont
 
 PLATFORM = platform.system()  # 'Linux' or 'Darwin'
 
+# Hide from macOS Dock before any AppKit/Tk initialisation
+if PLATFORM == 'Darwin':
+    try:
+        import AppKit
+        AppKit.NSApplication.sharedApplication().setActivationPolicy_(
+            AppKit.NSApplicationActivationPolicyAccessory)
+    except Exception:
+        pass
+
 # --- Paths ---
 CODA_DIR     = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE  = os.path.expanduser('~/.config/coda/config.json')
@@ -168,10 +177,13 @@ def create_icon(count=0):
     draw = ImageDraw.Draw(img)
     draw.ellipse([1, 1, 63, 63], outline='black', width=2)
     font = _ithaca(54)
-    bb = draw.textbbox((0, 0), 'C', font=font)
-    w, h = bb[2] - bb[0], bb[3] - bb[1]
-    draw.text(((SIZE - w) / 2 - bb[0] + SIZE * 0.03,
-               (SIZE - h) / 2 - bb[1]), 'C', fill='black', font=font)
+    try:
+        draw.text((SIZE / 2 + SIZE * 0.03, SIZE / 2), 'C', fill='black', font=font, anchor='mm')
+    except TypeError:
+        bb = draw.textbbox((0, 0), 'C', font=font)
+        w, h = bb[2] - bb[0], bb[3] - bb[1]
+        draw.text(((SIZE - w) / 2 - bb[0] + SIZE * 0.03,
+                   (SIZE - h) / 2 - bb[1]), 'C', fill='black', font=font)
     return img
 
 def generate_desktop_icon():

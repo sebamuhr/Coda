@@ -560,12 +560,40 @@ PLISTEOF
 
     # Create Coda.app so it appears in Spotlight and Launchpad
     APP_DIR="$HOME/Applications/Coda.app"
-    mkdir -p "$APP_DIR/Contents/MacOS"
+    mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
     cat > "$APP_DIR/Contents/MacOS/Coda" << EXECEOF
 #!/bin/bash
 exec "${PYTHON_BIN}" "${CODA_DIR}/coda-tray.py"
 EXECEOF
     chmod +x "$APP_DIR/Contents/MacOS/Coda"
+
+    # Generate .icns so Spotlight/Launchpad shows the C icon, not Python's rocket
+    _ICON_TMP=$(mktemp -d)
+    mkdir -p "$_ICON_TMP/coda.iconset"
+    python3 - << PYEOF 2>/dev/null
+from PIL import Image, ImageDraw, ImageFont
+S = 512
+img = Image.new('RGBA', (S, S), (0,0,0,0))
+d = ImageDraw.Draw(img)
+d.ellipse([8, 8, S-8, S-8], fill='white', outline='black', width=8)
+try:
+    f = ImageFont.truetype('${CODA_DIR}/ithaca-font/Ithaca-LVB75.ttf', int(S*0.75))
+    d.text((S//2 + int(S*0.03), S//2), 'C', fill='black', font=f, anchor='mm')
+except Exception:
+    pass
+img.save('${_ICON_TMP}/coda.png')
+PYEOF
+    if [ -f "${_ICON_TMP}/coda.png" ]; then
+        for _sz in 16 32 64 128 256 512; do
+            sips -z $_sz $_sz "${_ICON_TMP}/coda.png" \
+                --out "${_ICON_TMP}/coda.iconset/icon_${_sz}x${_sz}.png" >/dev/null 2>&1
+        done
+        iconutil -c icns "${_ICON_TMP}/coda.iconset" \
+            -o "$APP_DIR/Contents/Resources/AppIcon.icns" 2>/dev/null && \
+            ok "Coda.app icon generated"
+    fi
+    rm -rf "$_ICON_TMP"
+
     cat > "$APP_DIR/Contents/Info.plist" << INFOPEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -577,6 +605,7 @@ EXECEOF
     <key>CFBundleVersion</key><string>1.0</string>
     <key>CFBundleExecutable</key><string>Coda</string>
     <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSUIElement</key><true/>
 </dict>
 </plist>
