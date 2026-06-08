@@ -619,7 +619,15 @@ PYEOF
 INFOPEOF
     # Force Spotlight to index the new app
     mdimport "$APP_DIR" 2>/dev/null || true
-    ok "Coda.app created in ~/Applications — search 'Coda' in Spotlight to relaunch"
+
+    # Pin Coda to the Dock so it's always one click away
+    defaults write com.apple.dock persistent-apps -array-add \
+        "<dict><key>tile-data</key><dict><key>file-data</key><dict>\
+<key>_CFURLString</key><string>${APP_DIR}</string>\
+<key>_CFURLStringType</key><integer>0</integer>\
+</dict></dict></dict>" 2>/dev/null || true
+    killall Dock 2>/dev/null || true
+    ok "Coda.app pinned to the Dock — click it anytime to launch"
 else
     # Nautilus right-click extension
     mkdir -p "$HOME/.local/share/nautilus-python/extensions/"
