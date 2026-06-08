@@ -278,16 +278,19 @@ echo ""
 
 # macOS: run ollama as a headless background service — no icon, no app, just like Linux
 if [ "$OS" = "Darwin" ]; then
-    # Kill any running Ollama processes (Homebrew broken version, or Ollama.app)
+    # Stop Homebrew's ollama SERVICE first — brew services uses launchd to restart
+    # the process automatically after pkill, so we must stop the service before killing
+    if brew list --formula ollama &>/dev/null 2>&1; then
+        warn "Removing broken Ollama Homebrew formula (0.30.x, missing llama-server)…"
+        brew services stop ollama 2>/dev/null || true
+        launchctl remove homebrew.mxcl.ollama 2>/dev/null || true
+        brew uninstall --formula ollama 2>/dev/null || true
+    fi
+    # Kill any remaining ollama processes
     if pgrep -f ollama &>/dev/null; then
         warn "Stopping existing Ollama process…"
         pkill -f ollama 2>/dev/null || true
         sleep 2
-    fi
-    # Remove broken Homebrew formula if present
-    if brew list --formula ollama &>/dev/null 2>&1; then
-        warn "Removing broken Ollama Homebrew formula…"
-        brew uninstall --formula ollama 2>/dev/null || true
     fi
 
     # Find or download the ollama CLI binary (headless server, no GUI)

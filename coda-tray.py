@@ -630,14 +630,29 @@ def quit_app(icon, query):
 
 # --- macOS: auto-start Ollama as a background service if not already running ---
 def _ensure_ollama_mac():
-    """Start ollama serve silently if it's not reachable — no icon, no popup."""
+    """Start ollama serve silently if not running, and evict any broken Homebrew version."""
     import urllib.request
+    # Check if something is running on 11434
     try:
-        urllib.request.urlopen('http://localhost:11434', timeout=3)
-        return  # Already running
+        resp = urllib.request.urlopen('http://localhost:11434', timeout=3)
+        body = resp.read(256).decode('utf-8', errors='ignore')
+        if 'Ollama' in body:
+            return  # Good ollama is already running
     except Exception:
-        pass
-    # Try via the LaunchAgent first (proper way)
+        body = ''
+
+    # If the Homebrew service is what's running (or blocking), evict it
+    brew_check = subprocess.run(
+        ['brew', 'list', '--formula', 'ollama'],
+        capture_output=True, text=True
+    )
+    if brew_check.returncode == 0:
+        subprocess.run(['brew', 'services', 'stop', 'ollama'], capture_output=True)
+        subprocess.run(['launchctl', 'remove', 'homebrew.mxcl.ollama'], capture_output=True)
+        subprocess.run(['pkill', '-f', '/opt/homebrew.*ollama'], capture_output=True)
+        time.sleep(2)
+
+    # Start our headless LaunchAgent
     subprocess.run(['launchctl', 'start', 'com.coda.ollama'], capture_output=True)
     time.sleep(3)
     try:
