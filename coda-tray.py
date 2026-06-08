@@ -542,12 +542,25 @@ def build_menu():
 
 # --- Restart (macOS) ---
 def restart_app(icon, query):
-    script = os.path.abspath(__file__)
-    def _relaunch():
-        time.sleep(1.5)
-        subprocess.Popen([sys.executable, script])
-    threading.Thread(target=_relaunch, daemon=True).start()
-    quit_app(icon, query)
+    # Remove lock first so the new instance can start immediately
+    for f in [RUNNING_FILE, LOCK_FILE]:
+        try: os.remove(f)
+        except Exception: pass
+    # Start new instance before this process exits
+    subprocess.Popen([sys.executable, os.path.abspath(__file__)])
+    # Clean up children (inline — don't call quit_app which would double-remove files)
+    if PLATFORM == 'Darwin':
+        subprocess.run(['pkill', '-f', 'aider'], capture_output=True)
+    for proc in [_email_proc, _prefs_proc]:
+        try:
+            if proc is not None and proc.poll() is None:
+                proc.terminate()
+        except Exception:
+            pass
+    subprocess.run(['pkill', '-f', 'coda-email.py'],       capture_output=True)
+    subprocess.run(['pkill', '-f', 'coda-preferences.py'], capture_output=True)
+    icon.stop()
+    threading.Timer(2.0, lambda: os._exit(0)).start()
 
 # --- Quit ---
 def quit_app(icon, query):
@@ -610,7 +623,10 @@ def quit_app(icon, query):
         try: os.remove(f)
         except Exception: pass
     icon.stop()
-    os.kill(os.getpid(), signal.SIGTERM)
+    # Safety net: os._exit(0) guarantees exit code 0 (clean quit, not a crash signal).
+    # Code 0 tells the LaunchAgent not to auto-restart. icon.stop() normally exits
+    # the process on its own; this fires after 2s only if it somehow doesn't.
+    threading.Timer(2.0, lambda: os._exit(0)).start()
 
 # --- Main ---
 def main():

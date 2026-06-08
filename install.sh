@@ -579,7 +579,12 @@ if [ "$OS" = "Darwin" ]; then
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
-    <false/>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
     <key>StandardOutPath</key>
     <string>${HOME}/.coda-error.log</string>
     <key>StandardErrorPath</key>
@@ -587,6 +592,8 @@ if [ "$OS" = "Darwin" ]; then
 </dict>
 </plist>
 PLISTEOF
+    # Reload the plist so any changes take effect
+    launchctl unload "$PLIST_DIR/com.coda.plist" 2>/dev/null || true
     launchctl load "$PLIST_DIR/com.coda.plist" 2>/dev/null || true
     ok "LaunchAgent installed — Coda will start on login"
 
@@ -595,7 +602,17 @@ PLISTEOF
     mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
     cat > "$APP_DIR/Contents/MacOS/Coda" << EXECEOF
 #!/bin/bash
-exec "${PYTHON_BIN}" "${CODA_DIR}/coda-tray.py" >> "$HOME/.coda-error.log" 2>&1
+# If Coda is already running, do nothing
+if pgrep -f "coda-tray.py" > /dev/null 2>&1; then
+    exit 0
+fi
+# Remove any stale lock file from a previous crash
+rm -f /tmp/coda-tray.lock
+# Start via launchd (proper macOS way — uses the LaunchAgent config)
+launchctl kickstart "gui/\$(id -u)/com.coda.tray" 2>/dev/null && exit 0
+launchctl start com.coda.tray 2>/dev/null && exit 0
+# Fallback: direct launch if launchd is unavailable
+exec "${PYTHON_BIN}" "${CODA_DIR}/coda-tray.py" >> "\$HOME/.coda-error.log" 2>&1
 EXECEOF
     chmod +x "$APP_DIR/Contents/MacOS/Coda"
 
