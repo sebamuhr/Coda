@@ -508,7 +508,7 @@ else
 fi
 
 if [ "$PROVIDER" = "Ollama (local)" ]; then
-    ALIAS_CMD="source ~/aider-env/bin/activate && OLLAMA_API_BASE=http://${OLLAMA_IP}:11434 aider --model ollama/${MODEL}"
+    ALIAS_CMD="source ~/aider-env/bin/activate && OLLAMA_API_BASE=http://${OLLAMA_IP}:11434 aider --model ollama_chat/${MODEL}"
 elif [ "$PROVIDER" = "Gemini" ]; then
     ALIAS_CMD="source ~/aider-env/bin/activate && GEMINI_API_KEY=${API_KEY} aider --model gemini/${MODEL}"
 elif [ "$PROVIDER" = "Claude" ]; then

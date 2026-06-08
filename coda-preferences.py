@@ -147,7 +147,9 @@ def write_email_conf(cfg):
     os.chmod(EMAIL_CONF, 0o600)
 
 def update_bashrc_alias(alias, cfg):
-    bashrc = os.path.expanduser('~/.bashrc')
+    import platform as _platform
+    rc = '~/.zshrc' if _platform.system() == 'Darwin' else '~/.bashrc'
+    bashrc = os.path.expanduser(rc)
     provider = cfg.get('provider', 'Ollama (local)')
     model = cfg.get('model', '')
     api_key = cfg.get('api_key', '')
@@ -157,7 +159,7 @@ def update_bashrc_alias(alias, cfg):
         base_url = f"http://{ollama_ip}:11434" if ollama_ip else "http://localhost:11434"
         new_alias = (
             f"alias {alias}='source ~/aider-env/bin/activate && "
-            f"OLLAMA_API_BASE={base_url} aider --model ollama/{model}'"
+            f"OLLAMA_API_BASE={base_url} aider --model ollama_chat/{model}'"
         )
     elif provider == "Gemini":
         default_model = model or 'gemini-1.5-pro'

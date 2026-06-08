@@ -16,15 +16,6 @@ from PIL import Image, ImageDraw, ImageFont
 
 PLATFORM = platform.system()  # 'Linux' or 'Darwin'
 
-# Hide from macOS Dock before any AppKit/Tk initialisation
-if PLATFORM == 'Darwin':
-    try:
-        import AppKit
-        AppKit.NSApplication.sharedApplication().setActivationPolicy_(
-            AppKit.NSApplicationActivationPolicyAccessory)
-    except Exception:
-        pass
-
 # --- Paths ---
 CODA_DIR     = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE  = os.path.expanduser('~/.config/coda/config.json')
@@ -108,7 +99,7 @@ def build_aider_cmd(folder, cfg, marker):
 
     if provider == "Ollama (local)":
         base_url = f"http://{ollama_ip}:11434" if ollama_ip else "http://localhost:11434"
-        run = f"OLLAMA_API_BASE={base_url} aider --model ollama/{model}"
+        run = f"OLLAMA_API_BASE={base_url} aider --model ollama_chat/{model}"
     elif provider == "Gemini":
         run = f"GEMINI_API_KEY={api_key} aider --model gemini/{model or 'gemini-1.5-pro'}"
     elif provider == "OpenAI":
@@ -117,7 +108,7 @@ def build_aider_cmd(folder, cfg, marker):
         run = f"ANTHROPIC_API_KEY={api_key} aider --model {model or 'claude-opus-4-5'}"
     else:
         base_url = f"http://{ollama_ip}:11434" if ollama_ip else "http://localhost:11434"
-        run = f"OLLAMA_API_BASE={base_url} aider --model ollama/{model}"
+        run = f"OLLAMA_API_BASE={base_url} aider --model ollama_chat/{model}"
 
     # touch marker on start, remove on any exit (close window, Ctrl-C, etc.)
     # trailing 'bash' (not exec bash) keeps terminal open after aider exits
