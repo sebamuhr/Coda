@@ -669,7 +669,63 @@ class PreferencesApp:
         write_email_conf(self.cfg)
         update_bashrc_alias(self.cfg['alias'], self.cfg)
 
-        messagebox.showinfo("Saved", "Preferences saved!\n\nRestart Coda from the taskbar to apply provider changes.")
+        self._ask_restart()
+
+    def _ask_restart(self):
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Settings saved")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+
+        tk.Label(
+            dlg,
+            text="Settings saved.\n\nRestart Coda now to load the changes?",
+            padx=24, pady=16, justify='center'
+        ).pack()
+
+        btn_frame = tk.Frame(dlg, pady=(0, 14))
+        btn_frame.pack()
+
+        def do_restart():
+            dlg.destroy()
+            self._restart_coda()
+
+        def do_later():
+            dlg.destroy()
+            self.root.destroy()
+
+        ttk.Button(btn_frame, text="Restart Now", command=do_restart, width=14).pack(side='left', padx=6)
+        ttk.Button(btn_frame, text="Cancel",      command=do_later,   width=10).pack(side='left', padx=6)
+
+        dlg.transient(self.root)
+        self.root.wait_window(dlg)
+
+    def _restart_coda(self):
+        LOCK_FILE = '/tmp/coda-tray.lock'
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'coda-tray.py')
+
+        old_pid = None
+        try:
+            with open(LOCK_FILE) as f:
+                old_pid = int(f.read().strip())
+        except Exception:
+            pass
+
+        try:
+            os.remove(LOCK_FILE)
+        except Exception:
+            pass
+
+        import sys as _sys
+        subprocess.Popen([_sys.executable, script])
+
+        if old_pid:
+            try:
+                import signal as _signal
+                os.kill(old_pid, _signal.SIGTERM)
+            except Exception:
+                pass
+
         self.root.destroy()
 
 

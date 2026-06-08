@@ -543,32 +543,10 @@ def build_menu():
         Menu.SEPARATOR,
         item('Preferences', launch_preferences),
         Menu.SEPARATOR,
-        item('Restart', restart_app) if PLATFORM == 'Darwin' else item('Restart', restart_app, visible=False),
         item('Quit', quit_app),
     )
 
 # --- Restart (macOS) ---
-def restart_app(icon, query):
-    # Remove lock first so the new instance can start immediately
-    for f in [RUNNING_FILE, LOCK_FILE]:
-        try: os.remove(f)
-        except Exception: pass
-    # Start new instance before this process exits
-    subprocess.Popen([sys.executable, os.path.abspath(__file__)])
-    # Clean up children (inline — don't call quit_app which would double-remove files)
-    if PLATFORM == 'Darwin':
-        subprocess.run(['pkill', '-f', 'aider'], capture_output=True)
-    for proc in [_email_proc, _prefs_proc]:
-        try:
-            if proc is not None and proc.poll() is None:
-                proc.terminate()
-        except Exception:
-            pass
-    subprocess.run(['pkill', '-f', 'coda-email.py'],       capture_output=True)
-    subprocess.run(['pkill', '-f', 'coda-preferences.py'], capture_output=True)
-    icon.stop()
-    threading.Timer(2.0, lambda: os._exit(0)).start()
-
 # --- Quit ---
 def quit_app(icon, query):
     if PLATFORM == 'Darwin':
