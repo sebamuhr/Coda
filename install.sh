@@ -278,22 +278,27 @@ echo ""
 
 # macOS: ensure official Ollama.app is installed (never use Homebrew formula)
 if [ "$OS" = "Darwin" ]; then
-    # Remove broken Homebrew formula if present
+    # Remove broken Homebrew formula if present (0.30.x missing llama-server)
     if brew list --formula ollama &>/dev/null 2>&1; then
         warn "Removing broken Ollama Homebrew formula…"
         brew uninstall --formula ollama 2>/dev/null || true
     fi
-    # Install official Ollama.app directly if not present
+    # Install official Ollama.app if not present
     if ! [ -d "/Applications/Ollama.app" ]; then
-        echo -e "  ${CYAN}Downloading Ollama from ollama.com…${NC}"
-        curl -L "https://ollama.com/download/Ollama-darwin.zip" \
-             -o /tmp/Ollama-darwin.zip --progress-bar
+        echo -e "  ${CYAN}Downloading Ollama…${NC}"
+        # Get latest release URL from GitHub API (stable endpoint, version-independent)
+        _OLLAMA_URL=$(curl -sf "https://api.github.com/repos/ollama/ollama/releases/latest" \
+            | grep '"browser_download_url"' | grep 'darwin.*\.zip' \
+            | head -1 | cut -d'"' -f4)
+        # Fallback to known-good direct URL
+        [ -z "$_OLLAMA_URL" ] && _OLLAMA_URL="https://ollama.com/download/Ollama-darwin.zip"
+        curl -L "$_OLLAMA_URL" -o /tmp/Ollama-darwin.zip --progress-bar
         unzip -o -q /tmp/Ollama-darwin.zip -d /tmp/ollama_extract 2>/dev/null
-        mv -f "/tmp/ollama_extract/Ollama.app" /Applications/ 2>/dev/null || \
-            mv -f "/tmp/ollama_extract/"*".app" /Applications/ 2>/dev/null || true
+        find /tmp/ollama_extract -name "*.app" -maxdepth 2 \
+            -exec mv -f {} /Applications/ \; 2>/dev/null || true
         rm -f /tmp/Ollama-darwin.zip
         rm -rf /tmp/ollama_extract
-        ok "Ollama installed to /Applications/Ollama.app"
+        ok "Ollama installed"
     fi
     if ! curl -s --connect-timeout 3 "http://localhost:11434" 2>/dev/null | grep -q "Ollama"; then
         echo -e "  ${CYAN}Starting Ollama…${NC}"
