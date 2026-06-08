@@ -713,33 +713,14 @@ class PreferencesApp:
         self._ask_restart()
 
     def _ask_restart(self):
-        dlg = tk.Toplevel(self.root)
-        dlg.title("Settings saved")
-        dlg.resizable(False, False)
-        dlg.grab_set()
-
-        tk.Label(
-            dlg,
-            text="Settings saved.\n\nRestart Coda now to load the changes?",
-            padx=24, pady=16, justify='center'
-        ).pack()
-
-        btn_frame = tk.Frame(dlg, pady=(0, 14))
-        btn_frame.pack()
-
-        def do_restart():
-            dlg.destroy()
+        if messagebox.askyesno(
+            "Restart Now",
+            "Settings saved.\n\nRestart Coda now to load the changes?",
+            default='yes'
+        ):
             self._restart_coda()
-
-        def do_later():
-            dlg.destroy()
+        else:
             self.root.destroy()
-
-        ttk.Button(btn_frame, text="Restart Now", command=do_restart, width=14).pack(side='left', padx=6)
-        ttk.Button(btn_frame, text="Cancel",      command=do_later,   width=10).pack(side='left', padx=6)
-
-        dlg.transient(self.root)
-        self.root.wait_window(dlg)
 
     def _restart_coda(self):
         LOCK_FILE = '/tmp/coda-tray.lock'
