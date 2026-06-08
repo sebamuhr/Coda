@@ -276,17 +276,24 @@ echo -e "  ${CYAN}The Email Assistant uses a dedicated local model (coda2.0:3b).
 echo "  This is completely separate from your Call Coda setup."
 echo ""
 
-# macOS: install Ollama via brew if missing, then start the service
+# macOS: ensure official Ollama.app is installed (never use Homebrew formula)
 if [ "$OS" = "Darwin" ]; then
-    # If the broken formula version is installed, replace it with the cask (official app)
+    # Remove broken Homebrew formula if present
     if brew list --formula ollama &>/dev/null 2>&1; then
-        warn "Removing broken Ollama formula and installing official Ollama app…"
+        warn "Removing broken Ollama Homebrew formula…"
         brew uninstall --formula ollama 2>/dev/null || true
     fi
-    if ! [ -d "/Applications/Ollama.app" ] && ! command -v ollama &>/dev/null; then
-        echo -e "  ${CYAN}Installing Ollama…${NC}"
-        brew install --cask ollama
-        ok "Ollama installed"
+    # Install official Ollama.app directly if not present
+    if ! [ -d "/Applications/Ollama.app" ]; then
+        echo -e "  ${CYAN}Downloading Ollama from ollama.com…${NC}"
+        curl -L "https://ollama.com/download/Ollama-darwin.zip" \
+             -o /tmp/Ollama-darwin.zip --progress-bar
+        unzip -o -q /tmp/Ollama-darwin.zip -d /tmp/ollama_extract 2>/dev/null
+        mv -f "/tmp/ollama_extract/Ollama.app" /Applications/ 2>/dev/null || \
+            mv -f "/tmp/ollama_extract/"*".app" /Applications/ 2>/dev/null || true
+        rm -f /tmp/Ollama-darwin.zip
+        rm -rf /tmp/ollama_extract
+        ok "Ollama installed to /Applications/Ollama.app"
     fi
     if ! curl -s --connect-timeout 3 "http://localhost:11434" 2>/dev/null | grep -q "Ollama"; then
         echo -e "  ${CYAN}Starting Ollama…${NC}"
