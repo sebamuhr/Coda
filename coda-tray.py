@@ -236,6 +236,9 @@ _SPLASH_LETTERS = {
 
 # --- Startup splash ---
 def show_splash():
+    if PLATFORM == 'Darwin':
+        return  # Tkinter mainloop poisons NSApplication; pystray can't show icon after
+
     word     = 'CODA'
     LETTER_W = 7
     LETTER_H = 9
