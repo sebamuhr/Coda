@@ -257,7 +257,9 @@ echo "    Health check   coda doctor"
 echo "    Uninstall      coda uninstall   (or Preferences → General)"
 echo
 echo "  Coda is a tool: you are responsible for how you use it. It comes with no"
-echo "  warranty and collects no data. See TERMS.md and PRIVACY.md in $CODE_DIR."
+echo "  warranty and collects no data."
+echo "    Terms     https://github.com/$REPO/blob/main/TERMS.md"
+echo "    Privacy   https://github.com/$REPO/blob/main/PRIVACY.md"
 echo
 if [ "$START" = 1 ]; then
     "$PY" "$CODE_DIR/coda.py" tray
