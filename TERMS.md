@@ -6,35 +6,29 @@ By installing or using Coda (the app, the `coda` command or the Coda skill) you 
 
 ## 1. Coda is a tool
 
-Coda is a tool that runs on your own computer. It does three things:
-
-- It opens the coding agent you chose (for example Claude Code, Codex, Gemini CLI, Cursor Agent or Aider) in a folder.
-- It connects to the mail account you configure.
-- It passes your requests to the AI model you select.
+Coda is a tool that runs on your own computer. It opens the coding agent you chose (for example Claude Code, Codex, Gemini CLI, Cursor Agent or Aider) in a folder. When Aider is your agent, it passes Aider the AI provider and key you configured.
 
 Coda does not decide what you do with these. **You alone are responsible for how you use it.** That includes:
 
 - every command your coding agent runs and every change it makes to your files;
-- every email you send, save as a draft or let an AI agent write for you;
-- the content of anything an AI model writes for you, before you use, send or publish it.
+- the content of anything an AI model writes for you, before you use, run or publish it.
 
 ## 2. AI output can be wrong
 
-AI models make mistakes. They can produce wrong, incomplete, insecure or inappropriate code and text. Review everything before you rely on it, run it or send it. Keep backups and use version control (for example git) in folders where you let a coding agent work.
+AI models make mistakes. They can produce wrong, incomplete, insecure or inappropriate code and text. Review everything before you rely on it or run it. Keep backups and use version control (for example git) in folders where you let a coding agent work.
 
 ## 3. Your accounts and third-party services
 
 Coda works with services that are not part of Coda. Examples:
 
-- AI providers: Anthropic, OpenAI, Google, Cursor, and the makers of Aider and Ollama
-- email providers: Gmail, Outlook, Yahoo and others
+- AI providers and coding agents: Anthropic, OpenAI, Google, Cursor, and the makers of Aider and Ollama
 
 When you use them:
 
 - You need your own account with each service, and you must follow that service's terms, usage policies and limits.
 - Any costs, rate limits or account actions from those services are between you and them.
 - Coda never pays for, resells or provides access to any AI service.
-- Coda does not ask for, collect or store your login for any AI service. Each agent signs you in through its own official sign-in.
+- Coda does not ask for, collect or store your login for any coding agent. Each agent signs you in through its own official sign-in. (Only an API key you choose to enter for Aider is stored, on your computer.)
 - Coda is not affiliated with, endorsed by or sponsored by any of these companies. Their names and trademarks belong to their owners and are used only to say what Coda works with.
 
 ## 4. No warranty
@@ -46,7 +40,6 @@ Coda is provided **"as is" and "as available", without warranty of any kind**, e
 To the maximum extent permitted by law, the authors and distributors of Coda are not liable for any damages arising from using Coda or being unable to use it. This covers direct, indirect, incidental, special, consequential and punitive damages. Examples include:
 
 - lost or corrupted data or files;
-- emails sent in error;
 - account suspensions;
 - charges from third-party services;
 - lost profits;

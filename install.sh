@@ -20,7 +20,7 @@
 #
 #  Everything goes in:
 #    ~/.local/share/coda    app, Python environments
-#    ~/.config/coda         your settings and contacts
+#    ~/.config/coda         your settings
 #    ~/.local/bin/coda      the 'coda' command
 #  Remove it all with:  coda uninstall
 # ═══════════════════════════════════════════════════════════════
@@ -54,7 +54,7 @@ esac
 
 BOLD=$(tput bold 2>/dev/null || true); RESET=$(tput sgr0 2>/dev/null || true)
 GRAY='\033[0;90m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
-STEPS=7
+STEPS=6
 step() { echo; echo -e "${BLUE}${BOLD}[$1/$STEPS]${RESET} $2"; }
 ok()   { echo -e "    ${GREEN}✓  $1${NC}"; }
 warn() { echo -e "    ${YELLOW}⚠  $1${NC}"; }
@@ -78,7 +78,7 @@ cat << 'BANNER'
   ╚██████╗╚██████╔╝██████╔╝██║  ██║
    ╚═════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝
 BANNER
-echo -e "${RESET}  Your local AI assistant — code and email, no subscription"
+echo -e "${RESET}  Right-click any folder → your AI coding agent opens there"
 echo
 
 command -v python3 >/dev/null || die "python3 is required."
@@ -143,7 +143,7 @@ VENV="$DATA_DIR/venv"
 [ -x "$VENV/bin/python3" ] || python3 -m venv --system-site-packages "$VENV" \
     || die "could not create a Python venv (on Ubuntu: sudo apt install python3-venv)"
 "$VENV/bin/python3" -m pip install -q --upgrade pip
-"$VENV/bin/python3" -m pip install -q pystray pillow requests anthropic
+"$VENV/bin/python3" -m pip install -q pystray pillow
 PY="$VENV/bin/python3"
 ok "$VENV"
 
@@ -192,13 +192,14 @@ fi
 
 # ── 5: Settings ─────────────────────────────────────────────────
 step 5 "Settings"
-if [ -f "$CONFIG_FILE" ] && [ "$RECONFIGURE" = 0 ]; then
+if [ "$ENGINE" != aider ]; then
+    ok "nothing to set up: $ENGINE uses its own login and model settings"
+    CODE_DIR="$CODE_DIR" ENGINE="$ENGINE" "$PY" -c "import os,sys; sys.path.insert(0,os.environ['CODE_DIR']); import coda_common as C; c=C.load_config(); c['engine']=os.environ['ENGINE']; C.save_config(c)"
+elif [ -f "$CONFIG_FILE" ] && [ "$RECONFIGURE" = 0 ]; then
     ok "keeping your existing settings (re-run with --reconfigure to change them)"
     CODE_DIR="$CODE_DIR" ENGINE="$ENGINE" "$PY" -c "import os,sys; sys.path.insert(0,os.environ['CODE_DIR']); import coda_common as C; c=C.load_config(); c['engine']=os.environ['ENGINE']; C.save_config(c)"
-    EMAIL_OLLAMA_IP=$("$PY" -c "import sys; sys.path.insert(0,'$CODE_DIR'); import coda_common as C; print(C.load_config()['email_ollama_ip'])")
 else
-  OLLAMA_IP=localhost; MODEL=""; API_KEY=""; PROVIDER="Ollama (local)"
-  if [ "$ENGINE" = aider ]; then
+    OLLAMA_IP=localhost; MODEL=""; API_KEY=""; PROVIDER="Ollama (local)"
     echo "  Which AI should aider use?"
     echo "    1) Ollama  — local, private, free"
     echo "    2) Gemini  — Google, has a free tier"
@@ -224,55 +225,23 @@ else
            ask MODEL "Model" "gpt-4o" ;;
         *) die "Invalid choice" ;;
     esac
-  else
-    ask OLLAMA_IP "Ollama server for the Email Agent (localhost or an IP)" localhost
-  fi
-    ask USER_NAME "Your first name (for email sign-offs)" ""
-    EMAIL_ADDR=""; APP_PASSWORD=""
-    if yesno "Set up the Email Agent now? (needs an app password)"; then
-        ask EMAIL_ADDR "Email address" ""
-        ask APP_PASSWORD "App password (Gmail: myaccount.google.com/apppasswords)" "" secret
-    fi
-    ask EMAIL_OLLAMA_IP "Ollama server for the Email Agent (always local AI)" "$OLLAMA_IP"
     ENGINE="$ENGINE" PROVIDER="$PROVIDER" OLLAMA_IP="$OLLAMA_IP" MODEL="$MODEL" API_KEY="$API_KEY" \
-    USER_NAME="$USER_NAME" EMAIL_ADDR="$EMAIL_ADDR" APP_PASSWORD="$APP_PASSWORD" \
-    EMAIL_OLLAMA_IP="$EMAIL_OLLAMA_IP" CODE_DIR="$CODE_DIR" "$PY" - << 'PYEOF'
+    CODE_DIR="$CODE_DIR" "$PY" - << 'PYEOF'
 import os, sys
 sys.path.insert(0, os.environ['CODE_DIR'])
 import coda_common as C
 e = os.environ
 cfg = C.load_config()
-cfg.update(engine=e['ENGINE'], provider=e['PROVIDER'], ollama_ip=e['OLLAMA_IP'], model=e['MODEL'],
-           email_ollama_ip=e['EMAIL_OLLAMA_IP'])
-# Blank answers never wipe a value that is already there (e.g. from an older version).
-for key, var in (('api_key', 'API_KEY'), ('user_name', 'USER_NAME'),
-                 ('email', 'EMAIL_ADDR'), ('app_password', 'APP_PASSWORD')):
-    if e[var]:
-        cfg[key] = e[var]
+cfg.update(engine=e['ENGINE'], provider=e['PROVIDER'], ollama_ip=e['OLLAMA_IP'], model=e['MODEL'])
+if e['API_KEY']:   # a blank answer never wipes a key that is already there
+    cfg['api_key'] = e['API_KEY']
 C.save_config(cfg)
 PYEOF
     ok "saved to $CONFIG_FILE (readable only by you)"
 fi
 
-# ── 6: Email AI model ───────────────────────────────────────────
-step 6 "Email AI model (coda2.0:3b, ~2 GB)"
-if [ "$YES" = 1 ]; then
-    ok "skipped (--yes) — run 'coda email-model' or Preferences → Email → Pull Model"
-elif curl -s --connect-timeout 4 "http://${EMAIL_OLLAMA_IP}:11434/api/tags" >/dev/null; then
-    if yesno "Download it to ${EMAIL_OLLAMA_IP} now?" y; then
-        "$PY" "$CODE_DIR/coda.py" email-model --host "$EMAIL_OLLAMA_IP" \
-            || warn "failed — retry later from Preferences → Email → Pull Model"
-    else
-        ok "skipped — Preferences → Email → Pull Model"
-    fi
-else
-    warn "Ollama not reachable at ${EMAIL_OLLAMA_IP}:11434 — skipped"
-    if [ "$OS" = Darwin ]; then echo -e "  ${GRAY}Install it with: brew install ollama && brew services start ollama${NC}"
-    else echo -e "  ${GRAY}Install it from https://ollama.com, then Preferences → Email → Pull Model${NC}"; fi
-fi
-
-# ── 7: Desktop integration (also removes old duplicates) ───────
-step 7 "Launcher, autostart and right-click menu"
+# ── 6: Desktop integration (also removes old duplicates) ───────
+step 6 "Launcher, autostart and right-click menu"
 INTEGRATE_ARGS=()
 [ "$YES" = 1 ] && INTEGRATE_ARGS+=(--yes)
 [ "$AUTOSTART" = 0 ] && INTEGRATE_ARGS+=(--no-autostart)

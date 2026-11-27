@@ -4,9 +4,7 @@
     coda                    start a coding session in the current folder
     coda code [FOLDER]      same, in FOLDER
     coda open [FOLDER]      open a new terminal window with a coding session
-    coda tray | email | prefs
-    coda mail ...           list / read / draft / send email (for AI agents)
-    coda email-model        create the local email model (coda2.0:3b)
+    coda tray | prefs       start the tray icon / Preferences
     coda doctor             show what is installed where, and any leftovers
     coda integrate          (re)create launcher, autostart, right-click menu
     coda update             update to the latest version
@@ -140,19 +138,6 @@ def cmd_code(args):
     if not exe:
         _fail(args, f'coda: {C.ENGINES[engine]["label"]} is not installed — see {C.ENGINES[engine]["url"]}\n'
                     f'      or pick another coding agent in Coda → Preferences.')
-    if args.prompt_file:
-        try:
-            with open(args.prompt_file) as f:
-                prompt = f.read()
-            os.remove(args.prompt_file)
-        except OSError:
-            prompt = ''
-        if prompt:
-            pa = C.agent_prompt_args(engine, prompt)
-            if pa is None:
-                _fail(args, f'coda: {C.ENGINES[engine]["label"]} can\'t write emails for Coda — choose '
-                            f'Claude Code, Codex, Gemini CLI or Cursor Agent in Preferences → Call Coda.')
-            extra_args = pa
     if engine == 'aider':
         provider = cfg.get('provider', 'Ollama (local)')
         if provider in C.PROVIDER_ENV and not cfg.get('api_key'):
@@ -212,165 +197,6 @@ def cmd_open(args):
     C.open_session_window(args.folder or os.getcwd())
 
 
-# ── coda mail (for AI agents and scripts) ─────────────────────────────
-def _mail():
-    import coda_mail
-    st = C.email_settings()
-    if not (st['EMAIL'] and st['APP_PASSWORD']):
-        sys.exit('coda: no email account set up — open Coda → Preferences → Email '
-                 '(address + app password), then try again.')
-    return coda_mail
-
-
-def _short(em):
-    return {k: em.get(k, '') for k in ('message_id', 'date', 'from', 'to', 'subject')} | (
-        {'unread': em['unread']} if 'unread' in em else {})
-
-
-def _read_body(args):
-    if args.body is not None:
-        return args.body
-    if args.body_file == '-':
-        return sys.stdin.read()
-    with open(args.body_file) as f:
-        return f.read()
-
-
-def cmd_mail_list(args):
-    m = _mail()
-    if args.folder == 'inbox':
-        ems = m.fetch_inbox(count=args.n)
-        if args.unread:
-            ems = [e for e in ems if e.get('unread')]
-    elif args.folder == 'sent':
-        ems = m.fetch_emails('\\Sent', 'ALL', count=args.n)
-    else:
-        ems = m.fetch_drafts(count=args.n)
-    if args.json:
-        say(json.dumps([_short(e) for e in ems], indent=2, ensure_ascii=False))
-        return
-    for e in ems:
-        flag = '● ' if e.get('unread') else '  '
-        say(f"{flag}{e['date'][:25]:25}  {e['from'][:38]:38}  {e['subject']}")
-        say(f"    id: {e['message_id']}")
-
-
-def cmd_mail_read(args):
-    m = _mail()
-    em = m.find_message(args.message_id)
-    if not em:
-        sys.exit(f'coda: no message with id {args.message_id}')
-    thread = m.fetch_thread(em) if not args.no_thread else [em]
-    name, notes = m.contact_for(em['from'])
-    if args.json:
-        say(json.dumps({'message': em, 'thread': thread,
-                        'contact': {'name': name, 'notes': notes},
-                        'you': {'name': C.load_config().get('user_name', ''),
-                                'email': C.email_settings()['EMAIL']}},
-                       indent=2, ensure_ascii=False))
-        return
-    say(m.format_thread(thread))
-    if notes:
-        say(f'\n[Private notes about {name or em["from"]} — use for tone only, never quote]\n{notes}')
-
-
-def cmd_mail_draft(args, send=False):
-    m = _mail()
-    body = _read_body(args)
-    reply_to = None
-    if args.reply_to:
-        reply_to = m.find_message(args.reply_to)
-        if not reply_to:
-            sys.exit(f'coda: no message with id {args.reply_to}')
-    to = args.to or (reply_to and email_address(reply_to.get('from', '')))
-    subject = args.subject or (reply_to or {}).get('subject', '')
-    if not to:
-        sys.exit('coda: --to is required for a new email')
-    if send:
-        if not args.confirm:
-            sys.exit('coda: refusing to send without --confirm (save a draft instead with "coda mail draft")')
-        m.send_email(to, subject, body, reply_to)
-        C.post_email_event({'kind': 'sent', 'to': to})
-        say(f'✓ Sent to {to}')
-    else:
-        m.save_draft(to, subject, body, reply_to)
-        C.post_email_event({'kind': 'draft', 'to': to})
-        say(f'✓ Draft saved for {to} — it shows in Coda\'s Drafts tab and in your mail app')
-
-
-def cmd_mail_suggest(args):
-    body = _read_body(args)
-    if not body.strip():
-        sys.exit('coda: the email text is empty')
-    if not args.reply_to and not args.to:
-        sys.exit('coda: give --reply-to MESSAGE_ID, or --to (and --subject) for a new email')
-    C.post_email_event({'kind': 'suggest', 'reply_to': args.reply_to or '',
-                        'to': args.to or '', 'subject': args.subject or '', 'body': body})
-    say('✓ Put in the Coda Email Agent window. The user reviews it there and sends or saves it.')
-
-
-def email_address(raw):
-    import email.utils
-    return email.utils.parseaddr(raw)[1] or raw
-
-
-def cmd_mail_contacts(args):
-    import coda_mail
-    cs = coda_mail.load_contacts()
-    if args.address:
-        name, notes = coda_mail.contact_for(args.address)
-        say(json.dumps({'name': name, 'notes': notes}, ensure_ascii=False) if args.json
-            else (f'{name}: {notes}' if (name or notes) else 'no contact notes'))
-        return
-    if args.json:
-        say(json.dumps(cs, indent=2, ensure_ascii=False))
-        return
-    for c in cs:
-        say(f"{c.get('name') or '?'}  <{', '.join(c.get('emails', []))}>\n    {c.get('prompt', '')}")
-
-
-def cmd_mail_check(_args):
-    m = _mail()
-    import imaplib
-    st = C.email_settings()
-    try:
-        conn = imaplib.IMAP4_SSL(st['IMAP_SERVER'])
-        conn.login(st['EMAIL'], st['APP_PASSWORD'])
-        sent, drafts = m.special_folder(conn, '\\Sent'), m.special_folder(conn, '\\Drafts')
-        conn.logout()
-    except Exception as e:
-        sys.exit(f'coda: could not log in to {st["IMAP_SERVER"]} as {st["EMAIL"]}: {e}')
-    say(f'✓ Logged in to {st["IMAP_SERVER"]} as {st["EMAIL"]}  (sent: {sent}, drafts: {drafts})')
-
-
-def cmd_email_window(args):
-    if not C.load_config().get('email_enabled', True):
-        sys.exit('coda: the Email Agent is turned off — turn it on in Preferences → Email')
-    spawn_gui('coda-email.py')
-
-
-# ── coda email-model ──────────────────────────────────────────────────
-def cmd_email_model(args):
-    cfg = C.load_config()
-    host = args.host or cfg.get('email_ollama_ip') or 'localhost'
-    try:
-        if C.email_model_installed(host) and not args.force:
-            say(f'  ✓ {C.EMAIL_MODEL} is already installed on {C.ollama_url(host)}')
-            return
-        last = ['']
-
-        def progress(msg):
-            if msg != last[0]:
-                last[0] = msg
-                print(f'\r    {msg}      ', end='', flush=True)
-        C.install_email_model(host, progress)
-        say()
-    except Exception as e:
-        say()
-        sys.exit(f'coda: could not set up the email model on {C.ollama_url(host)}: {e}')
-
-
-# ── coda integrate ────────────────────────────────────────────────────
 def _write(path, text, mode=0o644):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w') as f:
@@ -402,6 +228,26 @@ def write_icon_png(path):
     return True
 
 
+def cleanup_email_leftovers():
+    """The Email Agent was removed: drop its settings (mail password!),
+    contacts and working folder."""
+    removed = []
+    if os.path.exists(C.CONFIG_FILE):
+        try:
+            raw = json.load(open(C.CONFIG_FILE))
+        except (OSError, ValueError):
+            raw = {}
+        if any(k in raw for k in C.LEGACY_CONFIG_KEYS):
+            C.save_config(C.load_config())
+            removed.append('email settings in ~/.config/coda/config.json')
+    for f in C.LEGACY_CONFIG_FILES:
+        if remove_path(f):
+            removed.append(f.replace(H, '~'))
+    if remove_path(os.path.join(C.DATA_DIR, 'email-desk')):
+        removed.append('~/.local/share/coda/email-desk')
+    return removed
+
+
 def cleanup_legacy(remove_old_copies=None, verbose=True):
     """Remove launchers/aliases/locks left by older Coda versions and stray copies."""
     removed = []
@@ -410,6 +256,7 @@ def cleanup_legacy(remove_old_copies=None, verbose=True):
         if remove_path(ex(p)):
             removed.append(p)
     removed += strip_shell_aliases()
+    removed += cleanup_email_leftovers()
     for d in LEGACY_APP_DIRS:
         path = ex(d)
         if not os.path.isdir(path) or os.path.realpath(path) == os.path.realpath(C.CODE_DIR):
@@ -449,6 +296,9 @@ def strip_shell_aliases():
 def cmd_integrate(args):
     if not args.no_cleanup:
         cleanup_legacy(remove_old_copies=args.yes or None)
+    else:
+        for r in cleanup_email_leftovers():
+            say(f'  ✓  removed {r}')
     write_launcher()
     say(f'  ✓  command:     {C.BIN_LAUNCHER}')
     tray = f'"{C.python_bin()}" "{os.path.join(C.CODE_DIR, "coda-tray.py")}"'
@@ -456,7 +306,7 @@ def cmd_integrate(args):
         icon = ex('~/.local/share/icons/coda.png')
         write_icon_png(icon)
         desktop = ('[Desktop Entry]\nType=Application\nName=Coda\n'
-                   'Comment=Your local AI assistant — code and email\n'
+                   'Comment=Open your AI coding agent in any folder\n'
                    f'Exec={tray}\nIcon={icon}\nTerminal=false\n'
                    'Categories=Development;Utility;\nStartupNotify=false\n')
         _write(ex('~/.local/share/applications/coda.desktop'), desktop, 0o755)
@@ -593,15 +443,6 @@ def cmd_uninstall(args):
     if stopped:
         say(f'  ✓  stopped running Coda ({len(stopped)} process{"es" if len(stopped) != 1 else ""})')
 
-    cfg = C.load_config()
-    if not args.keep_model and confirm(
-            f'Remove the {C.EMAIL_MODEL} email model from Ollama?', default=True, assume=yes):
-        try:
-            C.remove_email_model(cfg.get('email_ollama_ip') or 'localhost')
-            say(f'  ✓  removed {C.EMAIL_MODEL}')
-        except Exception:
-            say(f'  •  {C.EMAIL_MODEL} not removed (Ollama not reachable or model absent)')
-
     for p in (LINUX_FILES if C.PLATFORM == 'Linux' else MAC_FILES):
         if C.PLATFORM == 'Darwin' and p.endswith('.plist'):
             subprocess.run(['launchctl', 'unload', ex(p)], capture_output=True)
@@ -619,7 +460,7 @@ def cmd_uninstall(args):
         pass
 
     if not args.keep_config and confirm(
-            'Remove your settings and contacts (~/.config/coda)?', default=True, assume=yes):
+            'Remove your settings (~/.config/coda)?', default=True, assume=yes):
         if remove_path(C.CONFIG_DIR):
             say('  ✓  removed ~/.config/coda')
 
@@ -653,68 +494,23 @@ def cmd_uninstall(args):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog='coda', description='Coda — your local AI assistant')
+    ap = argparse.ArgumentParser(prog='coda', description='Coda — open your AI coding agent in any folder')
     sub = ap.add_subparsers(dest='cmd')
     p = sub.add_parser('code', help='coding session in this terminal')
     p.add_argument('folder', nargs='?')
     p.add_argument('--engine', help='coding agent for this session: ' + ', '.join(C.ENGINES))
     p.add_argument('--keep-open', action='store_true', help=argparse.SUPPRESS)
-    p.add_argument('--prompt-file', help=argparse.SUPPRESS)
     p.set_defaults(fn=cmd_code)
     p = sub.add_parser('open', help='coding session in a new terminal window')
     p.add_argument('folder', nargs='?')
     p.set_defaults(fn=cmd_open)
-    for name, script in (('tray', 'coda-tray.py'), ('email', 'coda-email.py'),
-                         ('prefs', 'coda-preferences.py')):
+    for name, script in (('tray', 'coda-tray.py'), ('prefs', 'coda-preferences.py')):
         sub.add_parser(name, help=f'start {script}').set_defaults(fn=lambda a, s=script: spawn_gui(s))
-    sub.choices['email'].set_defaults(fn=cmd_email_window)
-    p = sub.add_parser('email-model', help=f'install {C.EMAIL_MODEL} on Ollama')
-    p.add_argument('--host')
-    p.add_argument('--force', action='store_true')
-    p.set_defaults(fn=cmd_email_model)
     p = sub.add_parser('integrate', help='create launcher, autostart and right-click menu')
     p.add_argument('--yes', action='store_true')
     p.add_argument('--no-autostart', action='store_true')
     p.add_argument('--no-cleanup', action='store_true')
     p.set_defaults(fn=cmd_integrate)
-    mp = sub.add_parser('mail', help='read email and write drafts (for AI agents)')
-    ms = mp.add_subparsers(dest='mail_cmd', required=True)
-    p = ms.add_parser('check', help='test the email login')
-    p.set_defaults(fn=cmd_mail_check)
-    p = ms.add_parser('list', help='list recent messages')
-    p.add_argument('--folder', choices=['inbox', 'sent', 'drafts'], default='inbox')
-    p.add_argument('--unread', action='store_true')
-    p.add_argument('-n', type=int, default=15)
-    p.add_argument('--json', action='store_true')
-    p.set_defaults(fn=cmd_mail_list)
-    p = ms.add_parser('read', help='show a message with its whole thread')
-    p.add_argument('message_id')
-    p.add_argument('--no-thread', action='store_true')
-    p.add_argument('--json', action='store_true')
-    p.set_defaults(fn=cmd_mail_read)
-    for name, send in (('draft', False), ('send', True)):
-        p = ms.add_parser(name, help='save a draft (safe)' if not send else 'send immediately (needs --confirm)')
-        p.add_argument('--to')
-        p.add_argument('--subject')
-        p.add_argument('--reply-to', metavar='MESSAGE_ID')
-        g = p.add_mutually_exclusive_group(required=True)
-        g.add_argument('--body')
-        g.add_argument('--body-file', metavar='PATH|-')
-        if send:
-            p.add_argument('--confirm', action='store_true')
-        p.set_defaults(fn=lambda a, s=send: cmd_mail_draft(a, send=s))
-    p = ms.add_parser('suggest', help='put an email text in the Email Agent window for review')
-    p.add_argument('--to')
-    p.add_argument('--subject')
-    p.add_argument('--reply-to', metavar='MESSAGE_ID')
-    g = p.add_mutually_exclusive_group(required=True)
-    g.add_argument('--body')
-    g.add_argument('--body-file', metavar='PATH|-')
-    p.set_defaults(fn=cmd_mail_suggest)
-    p = ms.add_parser('contacts', help='your per-contact tone notes')
-    p.add_argument('address', nargs='?')
-    p.add_argument('--json', action='store_true')
-    p.set_defaults(fn=cmd_mail_contacts)
     sub.add_parser('doctor', help='check the installation').set_defaults(fn=cmd_doctor)
     p = sub.add_parser('update', help='update Coda')
     p.add_argument('--branch', default='main')
@@ -723,7 +519,6 @@ def main():
     p = sub.add_parser('uninstall', help='remove Coda completely')
     p.add_argument('--yes', action='store_true', help='do not ask')
     p.add_argument('--keep-config', action='store_true')
-    p.add_argument('--keep-model', action='store_true')
     p.set_defaults(fn=cmd_uninstall)
     sub.add_parser('version').set_defaults(fn=lambda a: say(f'Coda {C.VERSION}'))
     args = ap.parse_args()

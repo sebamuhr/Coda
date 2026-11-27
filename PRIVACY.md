@@ -6,31 +6,24 @@
 
 ## What stays on your computer
 
-Coda stores its settings and data only on your own computer:
+Coda stores its settings only on your own computer:
 
 | What | Where |
 |---|---|
-| Settings, including your email address, app password and any API keys | `~/.config/coda/config.json`, readable only by your user account |
-| Your notes about contacts | `~/.config/coda/` |
+| Settings: which coding agent to open and, if you use Aider, its AI provider, model and API key | `~/.config/coda/config.json`, readable only by your user account |
 | The app itself | `~/.local/share/coda` (or the folder you installed it from) |
 
 Running `coda uninstall` removes all of it.
 
-## Where your data goes, and only when you use that feature
+## Where your data goes
 
-Coda connects only to the services you set up yourself:
+Coda itself sends nothing anywhere. It only opens your coding agent in a folder:
 
-- **Your email provider** (for example Gmail) uses IMAP and SMTP to read your mail and to save or send messages.
-- **Your local or home Ollama server.** This is the default email writer, so your emails don't leave your own machines.
-- **A cloud AI provider (Anthropic, Google or OpenAI), only if you choose one** in Preferences → Email → *Writes with*. Coda warns you before switching. The writer then receives the email thread you are replying to, your instructions and your notes about that contact. It never receives your mail password.
-- **Your coding agent** (Claude Code, Codex, etc.) sends whatever you work on to its provider under that provider's own privacy policy. Coda only opens it.
+- **Your coding agent** (Claude Code, Codex, Cursor Agent, Gemini CLI or Aider) sends whatever you work on to its provider, under that provider's own terms and privacy policy. Coda only starts it.
+- **With Aider**, your code goes to the AI you picked: your own Ollama server (nothing leaves your machines) or Google, Anthropic or OpenAI with your API key.
 - **GitHub**, only when you install or update Coda, to download the code.
 
 What these services do with your data is governed by their own privacy policies, not this one.
-
-## Using Coda as an AI skill
-
-If you use the Coda skill inside an AI agent, the agent reads the emails you ask it to work with. Those emails then go to that agent's provider under that provider's terms. The skill tells the agent never to ask for, read or print your mail password.
 
 ## Children
 

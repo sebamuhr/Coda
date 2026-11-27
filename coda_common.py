@@ -6,13 +6,11 @@ Preferences window, the right-click extension, the installer and the
 uninstaller can never disagree with each other again.
 """
 import json
-import time
 import os
 import platform
 import shutil
 import subprocess
 import tempfile
-import urllib.request
 
 VERSION  = '2.0.0'
 REPO     = 'sebamuhr/Coda'
@@ -22,14 +20,15 @@ HOME     = os.path.expanduser('~')
 # ── Paths ─────────────────────────────────────────────────────────────
 # Code     : wherever coda.py lives (a managed copy in DATA_DIR/app, or a
 #            git checkout for developers).
-# Config   : settings, contacts, window size — the user's data.
+# Config   : settings — the user's data.
 # Data     : everything the installer creates (venvs, managed app copy).
 # Runtime  : lock + session markers; per-user and wiped on reboot.
 CODE_DIR    = os.path.dirname(os.path.abspath(__file__))
 CONFIG_DIR  = os.path.join(os.environ.get('XDG_CONFIG_HOME') or os.path.join(HOME, '.config'), 'coda')
 DATA_DIR    = os.path.join(os.environ.get('XDG_DATA_HOME') or os.path.join(HOME, '.local', 'share'), 'coda')
 CONFIG_FILE = os.path.join(CONFIG_DIR, 'config.json')
-LEGACY_EMAIL_CONF = os.path.join(CONFIG_DIR, 'email.conf')
+LEGACY_CONFIG_FILES = [os.path.join(CONFIG_DIR, n) for n in
+                       ('email.conf', 'contacts.json', 'window.json')]
 INSTALL_FILE = os.path.join(DATA_DIR, 'install.json')
 MANAGED_APP_DIR = os.path.join(DATA_DIR, 'app')
 VENV_DIR    = os.path.join(DATA_DIR, 'venv')
@@ -44,68 +43,6 @@ LOCK_FILE    = os.path.join(RUNTIME_DIR, 'tray.lock')
 RUNNING_FILE = os.path.join(RUNTIME_DIR, 'running')
 MARKER_DIR   = os.path.join(RUNTIME_DIR, 'sessions')   # one file per coding session
 
-EMAIL_MODEL      = 'coda2.0:3b'
-EMAIL_BASE_MODEL = 'qwen2.5:3b'
-EMAIL_SYSTEM = ('You write emails on behalf of the user. Write naturally and concisely '
-                'in their voice. Do not use robotic phrases or unnecessary pleasantries.')
-
-# Which AI writes emails in the Email Agent window. Local is the default and
-# the only private option; the cloud ones send the email thread to that company.
-EMAIL_AI = {
-    'local':  {'label': f'Local ({EMAIL_MODEL}) — private', 'company': None},
-    'claude': {'label': 'Claude',  'company': 'Anthropic'},
-    'gemini': {'label': 'Gemini',  'company': 'Google'},
-    'openai': {'label': 'OpenAI',  'company': 'OpenAI'},
-    'agent':  {'label': 'Your coding agent (Claude Code…), uses your plan', 'company': None},
-}
-EMAIL_AI_MODELS = {
-    'claude': ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'],
-    'gemini': ['gemini-2.5-flash', 'gemini-2.5-pro'],
-    'openai': ['gpt-4o-mini', 'gpt-4o'],
-}
-# Same provider for coding (aider) → its key can be reused for email.
-EMAIL_AI_CODING_PROVIDER = {'claude': 'Claude', 'gemini': 'Gemini', 'openai': 'OpenAI'}
-
-
-def email_ai_company(ai, engine=None):
-    if ai == 'agent':
-        engine = engine or load_config().get('engine', 'aider')
-        return ENGINES.get(engine, {}).get('company') or 'its maker'
-    return EMAIL_AI[ai]['company']
-
-
-def email_ai_name(ai, engine=None):
-    if ai == 'agent':
-        engine = engine or load_config().get('engine', 'aider')
-        return ENGINES.get(engine, ENGINES['aider'])['label']
-    return EMAIL_AI[ai]['label']
-
-
-def email_cloud_warning(ai, engine=None):
-    company = email_ai_company(ai, engine)
-    return (f"With {email_ai_name(ai, engine)}, the email you reply to — the whole thread — plus your "
-            f"instructions and your private notes about the contact are sent to {company} "
-            f"to write the reply.\n\nYour mail password is never sent. The local model keeps "
-            f"everything on your own computer or server.")
-
-
-def email_ai_settings(cfg=None):
-    """(ai, model, key) for the Email Agent."""
-    cfg = cfg or load_config()
-    ai = cfg.get('email_ai', 'local')
-    if ai not in EMAIL_AI:
-        ai = 'local'
-    if ai == 'local':
-        return ai, EMAIL_MODEL, ''
-    if ai == 'agent':
-        return ai, email_ai_name(ai, cfg.get('engine', 'aider')), ''
-    model = cfg.get('email_ai_model') or EMAIL_AI_MODELS[ai][0]
-    key = cfg.get('email_ai_key', '')
-    if not key and cfg.get('provider') == EMAIL_AI_CODING_PROVIDER[ai]:
-        key = cfg.get('api_key', '')
-    return ai, model, key
-
-
 PROVIDERS = ['Ollama (local)', 'Gemini', 'OpenAI', 'Claude']
 PROVIDER_MODELS = {
     'Ollama (local)': ['qwen2.5-coder:7b', 'qwen2.5-coder:3b'],
@@ -118,41 +55,12 @@ PROVIDER_ENV = {'Gemini': 'GEMINI_API_KEY', 'OpenAI': 'OPENAI_API_KEY', 'Claude'
 # Which coding agent "Call Coda" opens. Everything except aider brings its
 # own login and model choice, so Coda only passes the folder.
 ENGINES = {
-    'claude':       {'label': 'Claude Code',  'cmd': 'claude',       'url': 'https://claude.com/claude-code', 'company': 'Anthropic'},
-    'codex':        {'label': 'Codex CLI',    'cmd': 'codex',        'url': 'https://github.com/openai/codex', 'company': 'OpenAI'},
-    'cursor-agent': {'label': 'Cursor Agent', 'cmd': 'cursor-agent', 'url': 'https://cursor.com/cli', 'company': 'Cursor'},
-    'gemini':       {'label': 'Gemini CLI',   'cmd': 'gemini',       'url': 'https://github.com/google-gemini/gemini-cli', 'company': 'Google'},
-    'aider':        {'label': 'Aider',        'cmd': 'aider',        'url': 'https://aider.chat', 'company': ''},
+    'claude':       {'label': 'Claude Code',  'cmd': 'claude',       'url': 'https://claude.com/claude-code'},
+    'codex':        {'label': 'Codex CLI',    'cmd': 'codex',        'url': 'https://github.com/openai/codex'},
+    'cursor-agent': {'label': 'Cursor Agent', 'cmd': 'cursor-agent', 'url': 'https://cursor.com/cli'},
+    'gemini':       {'label': 'Gemini CLI',   'cmd': 'gemini',       'url': 'https://github.com/google-gemini/gemini-cli'},
+    'aider':        {'label': 'Aider',        'cmd': 'aider',        'url': 'https://aider.chat'},
 }
-
-# Coding agents that can take a first message, so Write Reply can hand
-# them an email. They open in a normal, visible terminal window.
-def agent_prompt_args(engine, prompt):
-    if engine == 'claude':
-        return ['--allowedTools', 'Bash(coda mail:*)', prompt]
-    if engine == 'gemini':
-        return ['-i', prompt]
-    if engine in ('codex', 'cursor-agent'):
-        return [prompt]
-    return None   # aider: no interactive first message
-
-
-EMAIL_DESK = os.path.join(DATA_DIR, 'email-desk')       # where the agent works on email
-EMAIL_EVENTS = os.path.join(RUNTIME_DIR, 'email-events')   # agent → Email Agent window
-
-
-def post_email_event(event):
-    """Tell a running Email Agent window about a suggestion, draft or sent mail."""
-    ensure_private_dir(RUNTIME_DIR)
-    ensure_private_dir(EMAIL_EVENTS)
-    event = dict(event, ts=time.time())
-    name = f'{time.time():.6f}-{os.getpid()}.json'
-    tmp = os.path.join(EMAIL_EVENTS, '.' + name)
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, 'w') as f:
-        json.dump(event, f)
-    os.replace(tmp, os.path.join(EMAIL_EVENTS, name))
-
 
 DEFAULT_CONFIG = {
     'engine':           'aider',
@@ -160,21 +68,16 @@ DEFAULT_CONFIG = {
     'ollama_ip':        'localhost',
     'model':            '',
     'api_key':          '',
-    'email_provider':   'Gmail',
-    'email':            '',
-    'app_password':     '',
-    'imap_server':      'imap.gmail.com',
-    'smtp_server':      'smtp.gmail.com',
-    'refresh_minutes':  5,
-    'email_sync_count': 15,
-    'user_name':        '',
     'theme':            'light',
-    'email_ollama_ip':  'localhost',
-    'email_enabled':    True,
-    'email_ai':         'local',
-    'email_ai_model':   '',
-    'email_ai_key':     '',
 }
+
+# Settings from the Email Agent (removed in 2.0). Dropped from config.json on
+# the next save, so no mail password is left behind on disk.
+LEGACY_CONFIG_KEYS = (
+    'email_provider', 'email', 'app_password', 'imap_server', 'smtp_server',
+    'refresh_minutes', 'email_sync_count', 'user_name', 'email_ollama_ip',
+    'email_enabled', 'email_ai', 'email_ai_model', 'email_ai_key',
+    'alias', 'learning_mode', 'email_ai_provider', 'custom_url')
 
 
 def ensure_private_dir(path):
@@ -182,21 +85,6 @@ def ensure_private_dir(path):
 
 
 # ── Config ────────────────────────────────────────────────────────────
-def _read_legacy_email_conf():
-    out = {}
-    try:
-        with open(LEGACY_EMAIL_CONF) as f:
-            for line in f:
-                if '=' in line:
-                    k, v = line.rstrip('\n').split('=', 1)
-                    out[k] = v
-    except OSError:
-        pass
-    mapping = {'EMAIL': 'email', 'APP_PASSWORD': 'app_password', 'IMAP_SERVER': 'imap_server',
-               'SMTP_SERVER': 'smtp_server', 'PROVIDER': 'email_provider',
-               'EMAIL_OLLAMA_IP': 'email_ollama_ip', 'USER_NAME': 'user_name', 'THEME': 'theme'}
-    return {mapping[k]: v for k, v in out.items() if k in mapping and v}
-
 
 def load_config():
     cfg = dict(DEFAULT_CONFIG)
@@ -205,40 +93,26 @@ def load_config():
             cfg.update(json.load(f))
     except (OSError, ValueError):
         pass
-    # Older versions kept email settings in a second file; fold them in.
-    for k, v in _read_legacy_email_conf().items():
-        if not cfg.get(k) or cfg.get(k) == DEFAULT_CONFIG.get(k):
-            cfg[k] = v
+    for k in LEGACY_CONFIG_KEYS:
+        cfg.pop(k, None)
     return cfg
 
 
 def save_config(cfg):
     """Atomic write, readable only by the user (it holds API keys/passwords)."""
     ensure_private_dir(CONFIG_DIR)
+    cfg = {k: v for k, v in cfg.items() if k not in LEGACY_CONFIG_KEYS}
     tmp = CONFIG_FILE + '.tmp'
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, 'w') as f:
         json.dump(cfg, f, indent=2)
     os.replace(tmp, CONFIG_FILE)
-    try:
-        os.remove(LEGACY_EMAIL_CONF)   # now merged into config.json
-    except OSError:
-        pass
+    for old in LEGACY_CONFIG_FILES:   # Email Agent leftovers (passwords, contacts)
+        try:
+            os.remove(old)
+        except OSError:
+            pass
 
-
-def email_settings():
-    """Email settings in the key format coda-email.py uses."""
-    c = load_config()
-    return {
-        'EMAIL':           c.get('email', ''),
-        'APP_PASSWORD':    c.get('app_password', ''),
-        'IMAP_SERVER':     c.get('imap_server') or 'imap.gmail.com',
-        'SMTP_SERVER':     c.get('smtp_server') or 'smtp.gmail.com',
-        'SYNC_COUNT':      str(c.get('email_sync_count', 15)),
-        'THEME':           c.get('theme', 'light'),
-        'EMAIL_OLLAMA_IP': c.get('email_ollama_ip') or 'localhost',
-        'USER_NAME':       c.get('user_name', ''),
-    }
 
 
 def normalize_host(raw):
@@ -373,19 +247,11 @@ def live_sessions():
     return alive
 
 
-def open_session_window(folder, prompt=None, title=None):
-    """Open a new terminal window running a Coda coding session in `folder`.
-    `prompt` becomes the agent's first message (visible in the window)."""
+def open_session_window(folder):
+    """Open a new terminal window running a Coda coding session in `folder`."""
     folder = os.path.abspath(os.path.expanduser(folder))
-    title = title or f'Coda · {session_label(load_config())}'
-    argv = coda_command() + ['code', '--keep-open']
-    if prompt:
-        ensure_private_dir(RUNTIME_DIR)
-        fd, pf = tempfile.mkstemp(prefix='prompt-', suffix='.txt', dir=RUNTIME_DIR)
-        with os.fdopen(fd, 'w') as f:
-            f.write(prompt)
-        argv += ['--prompt-file', pf]
-    argv.append(folder)
+    title = f'Coda · {session_label(load_config())}'
+    argv = coda_command() + ['code', '--keep-open', folder]
     if PLATFORM == 'Darwin':
         import shlex
         line = ' '.join(shlex.quote(a) for a in argv)
@@ -403,166 +269,3 @@ def open_session_window(folder, prompt=None, title=None):
             subprocess.Popen(term + argv, start_new_session=True)
             return
     raise RuntimeError('No terminal emulator found (tried gnome-terminal, konsole, xterm…)')
-
-
-EMAIL_DESK_RULES = """# Email desk — Coda
-
-You are helping {name} with their email, through Coda. {name} is watching this
-window and can talk to you here. Coda's Email Agent window is open next to it.
-
-## Commands (run them in the shell)
-
-- `{coda} mail read '<message-id>'`: the email, its whole thread, and {name}'s
-  private notes about the sender.
-- `{coda} mail list [--unread] [-n 20]`: recent inbox.
-- `{coda} mail contacts <address>`: {name}'s notes about one contact.
-- `{coda} mail suggest --reply-to '<message-id>' --body-file - <<'EOF'` … `EOF`:
-  puts your reply in {name}'s Coda window, where they review, edit and send it.
-  For a new email: `--to ADDRESS --subject "…"` instead of `--reply-to`.
-- `{coda} mail draft …` (same options): saves a draft in their mailbox. Only when asked.
-
-## How to write
-
-- Write as {name}, in the first person, and sign as {name}.
-- Match the language of the thread, and the length and formality the sender used.
-- {name}'s notes about a contact describe the relationship and the tone.
-  Use them only for tone and wording; never quote or mention them.
-- If {name} gave a rough draft or an instruction, keep their meaning and
-  improve the wording. Don't add promises, dates or facts they didn't give.
-- Write only the body: no subject line, no explanations inside it.
-
-## Rules
-
-- Deliver every version with `{coda} mail suggest`. When {name} asks for
-  changes here, run `suggest` again with the new version.
-- Never send email. {name} sends from Coda.
-- Never open Coda's config files and never print passwords.
-- Keep email content out of other tools, websites and files.
-"""
-
-
-def _coda_cmd_name():
-    return 'coda' if shutil.which('coda') else BIN_LAUNCHER
-
-
-def open_email_agent(task):
-    """Open the user's coding agent in a visible window, at the email desk,
-    with `task` as its first message. Returns the agent's label."""
-    cfg = load_config()
-    engine = cfg.get('engine', 'aider')
-    if agent_prompt_args(engine, 'x') is None:
-        raise RuntimeError(f"{ENGINES.get(engine, ENGINES['aider'])['label']} can't write emails for "
-                           "Coda. Choose Claude Code, Codex, Gemini CLI or Cursor Agent in "
-                           "Preferences → Call Coda.")
-    if not find_engine(engine):
-        raise RuntimeError(f"{ENGINES[engine]['label']} is not installed — see {ENGINES[engine]['url']}")
-    ensure_private_dir(EMAIL_DESK)
-    rules = EMAIL_DESK_RULES.format(name=cfg.get('user_name') or 'the user', coda=_coda_cmd_name())
-    for fn in ('CLAUDE.md', 'AGENTS.md', 'GEMINI.md'):
-        with open(os.path.join(EMAIL_DESK, fn), 'w') as f:
-            f.write(rules)
-    label = ENGINES[engine]['label']
-    open_session_window(EMAIL_DESK, prompt=task, title=f'Coda Email · {label}')
-    return label
-
-
-def email_agent_reply_task(message_id, instruction, rough=''):
-    coda = _coda_cmd_name()
-    q = "'" + message_id.replace("'", "'\\''") + "'"
-    t = (f"Write my reply to the email {message_id}. Read it first with `{coda} mail read {q}`, "
-         f"then put the reply in my Coda window with `{coda} mail suggest --reply-to {q} --body-file -`. "
-         f"Follow the email desk rules in this folder.\n\n")
-    t += f"What I want to say: {instruction or '(nothing specific: write a fitting reply)'}"
-    if rough:
-        t += f"\n\nMy rough draft, improve it:\n{rough}"
-    return t
-
-
-def email_agent_new_task(to, subject, instruction, rough=''):
-    coda = _coda_cmd_name()
-    t = (f"Write a new email for me{' to ' + to if to else ''}"
-         f"{' with the subject «' + subject + '»' if subject else ''}. "
-         + (f"Check my notes on the recipient with `{coda} mail contacts {to}`, then p" if to else "P")
-         + f"ut it in my Coda window with `{coda} mail suggest --to ADDRESS --subject \"…\" --body-file -`. "
-         f"Follow the email desk rules in this folder.\n\nWhat I want to say: {instruction}")
-    if rough:
-        t += f"\n\nMy rough draft, improve it:\n{rough}"
-    return t
-
-
-def email_agent_inbox_task():
-    coda = _coda_cmd_name()
-    return (f"Go through my recent inbox (`{coda} mail list --unread`, or `{coda} mail list` if "
-            f"nothing is unread). Give me a short summary: who wrote, what they want, and which "
-            f"emails need an answer. Then ask me which ones to answer and how. Write each reply "
-            f"with `{coda} mail suggest`, or save it as a draft with `{coda} mail draft` if I say "
-            f"so. Follow the email desk rules in this folder.")
-
-
-# ── Email model (Ollama) ──────────────────────────────────────────────
-def _ollama_json(base, path, payload=None, method=None, timeout=30):
-    data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(base + path, data=data, method=method,
-                                 headers={'Content-Type': 'application/json'})
-    return urllib.request.urlopen(req, timeout=timeout)
-
-
-def ollama_models(host):
-    with _ollama_json(ollama_url(host), '/api/tags', timeout=5) as r:
-        return [m.get('name', '') for m in json.loads(r.read()).get('models', [])]
-
-
-def email_model_installed(host):
-    return any(n.startswith(EMAIL_MODEL) for n in ollama_models(host))
-
-
-def _stream(resp, progress=None, label=''):
-    for line in resp:
-        try:
-            obj = json.loads(line)
-        except ValueError:
-            continue
-        if obj.get('error'):
-            raise RuntimeError(obj['error'])
-        if progress and obj.get('total') and obj.get('completed'):
-            progress(f"{label} {int(obj['completed'] / obj['total'] * 100)}%")
-
-
-def install_email_model(host, progress=print):
-    """Create coda2.0:3b on the Ollama server at `host`.
-
-    The base model is only removed afterwards if *we* downloaded it, so a
-    user's own copy of qwen2.5:3b is never deleted.
-    """
-    base = ollama_url(host)
-    had_base = any(n.startswith(EMAIL_BASE_MODEL) for n in ollama_models(host))
-    if not had_base:
-        progress(f'Downloading {EMAIL_BASE_MODEL}…')
-        with _ollama_json(base, '/api/pull', {'model': EMAIL_BASE_MODEL, 'stream': True},
-                          timeout=600) as r:
-            _stream(r, progress, f'Downloading {EMAIL_BASE_MODEL}…')
-    progress(f'Creating {EMAIL_MODEL}…')
-    try:
-        with _ollama_json(base, '/api/create', {'model': EMAIL_MODEL, 'from': EMAIL_BASE_MODEL,
-                                                'system': EMAIL_SYSTEM, 'stream': True},
-                          timeout=300) as r:
-            _stream(r)
-    except Exception:
-        # Older Ollama servers only understand the Modelfile form.
-        modelfile = f'FROM {EMAIL_BASE_MODEL}\nSYSTEM "{EMAIL_SYSTEM}"'
-        with _ollama_json(base, '/api/create', {'name': EMAIL_MODEL, 'modelfile': modelfile,
-                                                'stream': True}, timeout=300) as r:
-            _stream(r)
-    if not had_base:
-        try:
-            _ollama_json(base, '/api/delete', {'model': EMAIL_BASE_MODEL}, method='DELETE').close()
-        except Exception:
-            pass
-    if not email_model_installed(host):
-        raise RuntimeError(f'{EMAIL_MODEL} not found after setup')
-    progress(f'✓ {EMAIL_MODEL} ready')
-
-
-def remove_email_model(host):
-    _ollama_json(ollama_url(host), '/api/delete', {'model': EMAIL_MODEL},
-                 method='DELETE', timeout=10).close()

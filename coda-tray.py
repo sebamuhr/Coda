@@ -303,23 +303,6 @@ def launch_coda(icon=None, query=None):
             show_notification("Coda Error", str(e))
     threading.Thread(target=_pick_and_launch, daemon=True).start()
 
-# --- Launch Email Agent (single instance) ---
-_email_proc = None
-
-def launch_email(icon=None, query=None):
-    global _email_proc
-    def _launch():
-        global _email_proc
-        if _email_proc is not None and _email_proc.poll() is None:
-            try:
-                os.kill(_email_proc.pid, signal.SIGUSR1)
-            except Exception:
-                pass
-            return
-        script = os.path.join(C.CODE_DIR, 'coda-email.py')
-        _email_proc = subprocess.Popen([sys.executable, script])
-    threading.Thread(target=_launch, daemon=True).start()
-
 # --- Launch Preferences (single instance) ---
 _prefs_proc = None
 
@@ -393,10 +376,8 @@ def build_menu():
         _provider_item('🟢  OpenAI', 'OpenAI'),
         _provider_item('🟠  Claude', 'Claude'),
     )
-    entries = [item('Launch Coda', launch_coda)]
-    if cfg.get('email_enabled', True):
-        entries.append(item('Email Agent', launch_email))
-    entries += [
+    entries = [
+        item('Launch Coda', launch_coda),
         Menu.SEPARATOR,
         item(f'Agent: {C.session_label(cfg)}', None, enabled=False),
         item('Coding Agent', engine_menu),
@@ -436,7 +417,7 @@ def quit_app(icon, query):
             os.kill(pid, signal.SIGTERM)
         except OSError:
             pass
-    for proc in [_email_proc, _prefs_proc]:
+    for proc in [_prefs_proc]:
         try:
             if proc is not None and proc.poll() is None:
                 proc.terminate()
@@ -488,7 +469,9 @@ def main():
 
     def setup(ic):
         ic.visible = True
-        if PLATFORM == 'Darwin':
+        cfg = load_config()
+        if PLATFORM == 'Darwin' and cfg.get('engine') == 'aider' \
+                and get_active_provider() == 'Ollama (local)':
             threading.Thread(target=_ensure_ollama_mac, daemon=True).start()
         start_badge_monitor(ic)
 
