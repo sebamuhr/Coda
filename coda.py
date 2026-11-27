@@ -140,6 +140,19 @@ def cmd_code(args):
     if not exe:
         _fail(args, f'coda: {C.ENGINES[engine]["label"]} is not installed — see {C.ENGINES[engine]["url"]}\n'
                     f'      or pick another coding agent in Coda → Preferences.')
+    if args.prompt_file:
+        try:
+            with open(args.prompt_file) as f:
+                prompt = f.read()
+            os.remove(args.prompt_file)
+        except OSError:
+            prompt = ''
+        if prompt:
+            pa = C.agent_prompt_args(engine, prompt)
+            if pa is None:
+                _fail(args, f'coda: {C.ENGINES[engine]["label"]} can\'t write emails for Coda — choose '
+                            f'Claude Code, Codex, Gemini CLI or Cursor Agent in Preferences → Call Coda.')
+            extra_args = pa
     if engine == 'aider':
         provider = cfg.get('provider', 'Ollama (local)')
         if provider in C.PROVIDER_ENV and not cfg.get('api_key'):
@@ -277,10 +290,23 @@ def cmd_mail_draft(args, send=False):
         if not args.confirm:
             sys.exit('coda: refusing to send without --confirm (save a draft instead with "coda mail draft")')
         m.send_email(to, subject, body, reply_to)
+        C.post_email_event({'kind': 'sent', 'to': to})
         say(f'✓ Sent to {to}')
     else:
         m.save_draft(to, subject, body, reply_to)
-        say(f'✓ Draft saved for {to} — review it in your mail app')
+        C.post_email_event({'kind': 'draft', 'to': to})
+        say(f'✓ Draft saved for {to} — it shows in Coda\'s Drafts tab and in your mail app')
+
+
+def cmd_mail_suggest(args):
+    body = _read_body(args)
+    if not body.strip():
+        sys.exit('coda: the email text is empty')
+    if not args.reply_to and not args.to:
+        sys.exit('coda: give --reply-to MESSAGE_ID, or --to (and --subject) for a new email')
+    C.post_email_event({'kind': 'suggest', 'reply_to': args.reply_to or '',
+                        'to': args.to or '', 'subject': args.subject or '', 'body': body})
+    say('✓ Put in the Coda Email Agent window. The user reviews it there and sends or saves it.')
 
 
 def email_address(raw):
@@ -633,6 +659,7 @@ def main():
     p.add_argument('folder', nargs='?')
     p.add_argument('--engine', help='coding agent for this session: ' + ', '.join(C.ENGINES))
     p.add_argument('--keep-open', action='store_true', help=argparse.SUPPRESS)
+    p.add_argument('--prompt-file', help=argparse.SUPPRESS)
     p.set_defaults(fn=cmd_code)
     p = sub.add_parser('open', help='coding session in a new terminal window')
     p.add_argument('folder', nargs='?')
@@ -676,6 +703,14 @@ def main():
         if send:
             p.add_argument('--confirm', action='store_true')
         p.set_defaults(fn=lambda a, s=send: cmd_mail_draft(a, send=s))
+    p = ms.add_parser('suggest', help='put an email text in the Email Agent window for review')
+    p.add_argument('--to')
+    p.add_argument('--subject')
+    p.add_argument('--reply-to', metavar='MESSAGE_ID')
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument('--body')
+    g.add_argument('--body-file', metavar='PATH|-')
+    p.set_defaults(fn=cmd_mail_suggest)
     p = ms.add_parser('contacts', help='your per-contact tone notes')
     p.add_argument('address', nargs='?')
     p.add_argument('--json', action='store_true')

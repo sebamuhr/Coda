@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import threading
+import time
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 
@@ -283,9 +284,12 @@ class EmailApp:
         self._selected_thread = {k: None for k in self.TAB_KEYS}
         self._sel_seq         = {k: 0    for k in self.TAB_KEYS}
 
+        self._agent_jobs = {}   # message-id → (tab, email) handed to the coding agent
+
         self._build_ui()
         self.load_tab('inbox')
         self.start_auto_refresh()
+        self.root.after(1000, self._poll_agent_events)
 
     # ── scroll routing ─────────────────────────────────────────────
 
@@ -309,12 +313,20 @@ class EmailApp:
         self.root.withdraw()   # hide, stay alive in background
 
     def _update_title(self):
-        ai, model, _ = C.email_ai_settings()
+        cfg = C.load_config()
+        ai, model, _ = C.email_ai_settings(cfg)
         if ai == 'local':
             self.root.title("Coda — Email Agent")
         else:
             self.root.title(f"Coda — Email Agent  ·  ⚠ replies written by {model} "
-                            f"({C.EMAIL_AI[ai]['company']}, cloud)")
+                            f"({C.email_ai_company(ai, cfg.get('engine'))}, cloud)")
+        btn = getattr(self, '_inbox_agent_btn', None)
+        if btn is not None:
+            if ai == 'agent':
+                btn.config(text=f"✨  Ask {model} about my inbox")
+                btn.pack(side='right', padx=(0, 6))
+            else:
+                btn.pack_forget()
 
     def _show_window(self):
         self._update_title()
@@ -343,6 +355,8 @@ class EmailApp:
         self.status_label = ttk.Label(hdr, text="", font=('', 9), foreground='gray')
         self.status_label.pack(side='right', padx=8)
         ttk.Button(hdr, text="↺  Refresh", command=self.force_refresh, width=11).pack(side='right')
+        self._inbox_agent_btn = ttk.Button(hdr, text="", command=self._ask_agent_inbox)
+        self._update_title()
 
         ttk.Separator(self.root).pack(fill='x')
 
@@ -644,6 +658,8 @@ class EmailApp:
             messagebox.showwarning("No email selected", "Please select an email first.")
             return
         inst = self._widgets[key]['instruction'].get('1.0', 'end').strip()
+        if C.email_ai_settings()[0] == 'agent':
+            return self._agent_reply(key, em, inst)
         if not inst:
             messagebox.showwarning("No instruction", "Please type what you want to say.")
             return
@@ -695,13 +711,145 @@ class EmailApp:
 
         threading.Thread(target=_do, daemon=True).start()
 
+    # ── writing with the user's coding agent (in its own window) ───
+
+    def _rough_draft(self, area):
+        text = area.get('1.0', 'end').strip()
+        return '' if (not text or text.startswith(('Coda is writing', '⏳', '⚠'))) else text
+
+    def _launch_agent(self, task):
+        try:
+            return C.open_email_agent(task)
+        except Exception as ex:
+            messagebox.showerror("Can't open your coding agent", str(ex))
+            return None
+
+    def _agent_reply(self, key, em, inst):
+        mid = (em.get('message_id') or '').strip()
+        if not mid:
+            messagebox.showwarning("Can't reply", "This email has no Message-ID, so your agent can't find it.")
+            return
+        rough = self._rough_draft(self._widgets[key]['reply'])
+        label = self._launch_agent(C.email_agent_reply_task(mid, inst, rough))
+        if not label:
+            return
+        self._agent_jobs[mid] = (key, em)
+        if not rough:
+            area = self._widgets[key]['reply']
+            area.delete('1.0', 'end')
+            area.insert('end', f'⏳ {label} is writing in its own window. Its reply will appear here.')
+        self.set_status(f"{label} is writing…")
+
+    def _agent_new(self, to, inst):
+        rough = self._rough_draft(self.new_reply_area)
+        label = self._launch_agent(C.email_agent_new_task(to, self.new_subject.get().strip(), inst, rough))
+        if not label:
+            return
+        if not rough:
+            self.new_reply_area.delete('1.0', 'end')
+            self.new_reply_area.insert('end', f'⏳ {label} is writing in its own window. The email will appear here.')
+        self.set_status(f"{label} is writing…")
+
+    def _ask_agent_inbox(self):
+        label = self._launch_agent(C.email_agent_inbox_task())
+        if label:
+            self.set_status(f"{label} is reading your inbox in its own window…")
+
+    def _poll_agent_events(self):
+        try:
+            names = sorted(n for n in os.listdir(C.EMAIL_EVENTS) if n.endswith('.json') and not n.startswith('.'))
+        except OSError:
+            names = []
+        for n in names:
+            path = os.path.join(C.EMAIL_EVENTS, n)
+            try:
+                with open(path) as f:
+                    ev = json.load(f)
+            except (OSError, ValueError):
+                ev = None
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            if ev and time.time() - ev.get('ts', 0) < 3600:
+                try:
+                    self._handle_agent_event(ev)
+                except Exception as ex:
+                    self.set_status(f"Could not show the agent's email: {ex}")
+        self.root.after(1000, self._poll_agent_events)
+
+    def _select_tab(self, key):
+        keys = list(self.TAB_KEYS) + ['new', 'contacts']
+        self.nb.select(keys.index(key))
+        self.current_tab_key = key
+
+    def _handle_agent_event(self, ev):
+        kind = ev.get('kind')
+        who = C.email_ai_settings()[1] if C.email_ai_settings()[0] == 'agent' else 'Your agent'
+        if kind in ('draft', 'sent'):
+            self.cache['drafts' if kind == 'draft' else 'sent'] = None
+            if self.current_tab_key in ('drafts', 'sent'):
+                self.load_tab(self.current_tab_key)
+            self.set_status(f"✓ {who} {'saved a draft' if kind == 'draft' else 'sent an email'} "
+                            f"to {ev.get('to', '')}")
+            return
+        if kind != 'suggest':
+            return
+        body = (ev.get('body') or '').strip()
+        mid = (ev.get('reply_to') or '').strip()
+        if mid:
+            key, em = self._agent_jobs.get(mid, (None, None))
+            if em is None:
+                for k in self.TAB_KEYS:
+                    for e in self.cache.get(k) or []:
+                        if (e.get('message_id') or '').strip() == mid:
+                            key, em = k, e
+                            break
+                    if em:
+                        break
+            if em is not None:
+                self._select_tab(key)
+                if (self.selected.get(key) or {}).get('message_id', '').strip() != mid:
+                    emails = self.cache.get(key) or []
+                    idx = next((i for i, e in enumerate(emails)
+                                if (e.get('message_id') or '').strip() == mid), None)
+                    lb = self._widgets[key]['listbox']
+                    if idx is not None:
+                        lb.selection_clear(0, 'end')
+                        lb.selection_set(idx)
+                        lb.see(idx)
+                        self._on_select(None, key)
+                    else:
+                        self.selected[key] = em
+                area = self._widgets[key]['reply']
+                area.delete('1.0', 'end')
+                area.insert('end', body)
+                self._coda_original[key] = body
+                self._widgets[key]['write_btn'].config(text='🔄  Refresh', state='normal')
+                self.set_status(f"✓ {who}'s reply is ready: edit it, then Save or Send")
+                self._show_window()
+                return
+        # A new email (or a reply to a message we can't find): New Email tab.
+        self._select_tab('new')
+        if ev.get('to'):
+            self.new_to.delete(0, 'end')
+            self.new_to.insert(0, ev['to'])
+        if ev.get('subject'):
+            self.new_subject.delete(0, 'end')
+            self.new_subject.insert(0, ev['subject'])
+        self.new_reply_area.delete('1.0', 'end')
+        self.new_reply_area.insert('end', body)
+        self._coda_original['new'] = body
+        self.set_status(f"✓ {who}'s email is ready: check To and Subject, then Save or Send")
+        self._show_window()
+
     def _save_draft_reply(self, key):
         em = self.selected.get(key)
         if not em:
             messagebox.showwarning("No email selected", "Please select an email first.")
             return
         body = self._widgets[key]['reply'].get('1.0', 'end').strip()
-        if not body or 'Coda is writing' in body:
+        if not body or 'Coda is writing' in body or body.startswith('⏳'):
             messagebox.showwarning("No reply", "Please write a reply first.")
             return
         try:
@@ -716,7 +864,7 @@ class EmailApp:
             messagebox.showwarning("No email selected", "Please select an email first.")
             return
         body = self._widgets[key]['reply'].get('1.0', 'end').strip()
-        if not body or 'Coda is writing' in body:
+        if not body or 'Coda is writing' in body or body.startswith('⏳'):
             messagebox.showwarning("No reply", "Please write a reply first.")
             return
         if messagebox.askyesno("Send?", f"Send to:\n{em['from']}\n\nAre you sure?"):
@@ -736,6 +884,8 @@ class EmailApp:
             messagebox.showwarning("No instruction", "Please describe what you want to say.")
             return
         to = self.new_to.get().strip()
+        if C.email_ai_settings()[0] == 'agent':
+            return self._agent_new(to, inst)
 
         self.new_reply_area.delete('1.0', 'end')
         self.new_reply_area.insert('end', 'Coda is writing your email…')
@@ -769,7 +919,7 @@ class EmailApp:
         if not to or not subject:
             messagebox.showwarning("Missing fields", "Please fill in To and Subject.")
             return
-        if not body or 'Coda is writing' in body:
+        if not body or 'Coda is writing' in body or body.startswith('⏳'):
             messagebox.showwarning("No email", "Please write the email first.")
             return
         try:
@@ -785,7 +935,7 @@ class EmailApp:
         if not to or not subject:
             messagebox.showwarning("Missing fields", "Please fill in To and Subject.")
             return
-        if not body or 'Coda is writing' in body:
+        if not body or 'Coda is writing' in body or body.startswith('⏳'):
             messagebox.showwarning("No email", "Please write the email first.")
             return
         if messagebox.askyesno("Send?", f"Send to:\n{to}\nSubject: {subject}\n\nAre you sure?"):

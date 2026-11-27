@@ -470,6 +470,10 @@ def cloud_write_stream(prompt, cfg=None):
     ai, model, key = C.email_ai_settings(cfg)
     if ai == 'local':
         raise ValueError('local model selected')
+    if ai == 'agent':
+        yield ("⚠ Your coding agent writes in its own window — use Write Reply on an email. "
+               "For this example, pick the local model or an API writer in Preferences → Email.")
+        return
     if not key:
         yield f"⚠ No {C.EMAIL_AI[ai]['label']} API key — add one in Preferences → Email."
         return

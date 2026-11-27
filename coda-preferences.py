@@ -183,6 +183,8 @@ class PreferencesApp:
             self.aider_box.grid()
         else:
             self.aider_box.grid_remove()
+        if getattr(self, '_email_ai_current', None) == 'agent':
+            self._show_email_ai('agent')
         self.lbl_engine_status.config(text="Checking…", foreground='gray')
 
         def _check():
@@ -318,6 +320,15 @@ class PreferencesApp:
         self.lbl_cloud_warning = tk.Label(cb, text="", fg='#b00020', font=('', 9, 'bold'),
                                           wraplength=470, justify='left', anchor='w')
         self.lbl_cloud_warning.grid(row=4, column=0, columnspan=2, sticky='ew', pady=(6, 0))
+
+        self.agent_box = ttk.Frame(f)
+        self.agent_box.grid(row=15, column=0, columnspan=2, sticky='ew')
+        self.lbl_agent_info = ttk.Label(self.agent_box, text="", foreground='gray', font=('', 9),
+                                        wraplength=470, justify='left')
+        self.lbl_agent_info.grid(row=0, column=0, sticky='w', pady=(4, 0))
+        self.lbl_agent_warning = tk.Label(self.agent_box, text="", fg='#b00020', font=('', 9, 'bold'),
+                                          wraplength=470, justify='left', anchor='w')
+        self.lbl_agent_warning.grid(row=1, column=0, sticky='ew', pady=(6, 0))
         cb.columnconfigure(1, weight=1)
 
         f.columnconfigure(1, weight=1)
@@ -349,7 +360,7 @@ class PreferencesApp:
         if ai != 'local' and self._email_ai_current == 'local':
             if not messagebox.askyesno(
                     "Send your emails to the cloud?",
-                    "⚠  Privacy warning\n\n" + C.email_cloud_warning(ai) +
+                    "⚠  Privacy warning\n\n" + C.email_cloud_warning(ai, self._engine_key()) +
                     "\n\nUse " + C.EMAIL_AI[ai]['label'] + " for writing emails anyway?",
                     icon='warning', default='no', parent=self.root):
                 self.var_email_ai.set(C.EMAIL_AI['local']['label'])
@@ -360,9 +371,29 @@ class PreferencesApp:
     def _show_email_ai(self, ai):
         if ai == 'local':
             self.cloud_box.grid_remove()
+            self.agent_box.grid_remove()
             self.local_box.grid()
             return
         self.local_box.grid_remove()
+        if ai == 'agent':
+            self.cloud_box.grid_remove()
+            self.agent_box.grid()
+            engine = self._engine_key()
+            name = C.ENGINES[engine]['label']
+            if C.agent_prompt_args(engine, 'x') is None:
+                self.lbl_agent_info.config(text="")
+                self.lbl_agent_warning.config(
+                    text=f"⚠  {name} can't write emails. Choose Claude Code, Codex, Gemini CLI or "
+                         f"Cursor Agent on the Call Coda tab.")
+                return
+            self.lbl_agent_info.config(
+                text=f"Write Reply opens {name} in its own window, using your own {name} "
+                     f"account or plan; no API key needed. Its reply appears back here in Coda, "
+                     f"and you can ask it for changes in that window. "
+                     f"(The agent is the one chosen on the Call Coda tab.)")
+            self.lbl_agent_warning.config(text="⚠  " + C.email_cloud_warning(ai, engine).split("\n\n")[0])
+            return
+        self.agent_box.grid_remove()
         self.cloud_box.grid()
         models = C.EMAIL_AI_MODELS[ai]
         self.cb_email_ai_model['values'] = models

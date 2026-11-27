@@ -6,6 +6,7 @@ Preferences window, the right-click extension, the installer and the
 uninstaller can never disagree with each other again.
 """
 import json
+import time
 import os
 import platform
 import shutil
@@ -55,6 +56,7 @@ EMAIL_AI = {
     'claude': {'label': 'Claude',  'company': 'Anthropic'},
     'gemini': {'label': 'Gemini',  'company': 'Google'},
     'openai': {'label': 'OpenAI',  'company': 'OpenAI'},
+    'agent':  {'label': 'Your coding agent (Claude Code…), uses your plan', 'company': None},
 }
 EMAIL_AI_MODELS = {
     'claude': ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'],
@@ -65,9 +67,23 @@ EMAIL_AI_MODELS = {
 EMAIL_AI_CODING_PROVIDER = {'claude': 'Claude', 'gemini': 'Gemini', 'openai': 'OpenAI'}
 
 
-def email_cloud_warning(ai):
-    company = EMAIL_AI[ai]['company']
-    return (f"With {EMAIL_AI[ai]['label']}, the email you reply to — the whole thread — plus your "
+def email_ai_company(ai, engine=None):
+    if ai == 'agent':
+        engine = engine or load_config().get('engine', 'aider')
+        return ENGINES.get(engine, {}).get('company') or 'its maker'
+    return EMAIL_AI[ai]['company']
+
+
+def email_ai_name(ai, engine=None):
+    if ai == 'agent':
+        engine = engine or load_config().get('engine', 'aider')
+        return ENGINES.get(engine, ENGINES['aider'])['label']
+    return EMAIL_AI[ai]['label']
+
+
+def email_cloud_warning(ai, engine=None):
+    company = email_ai_company(ai, engine)
+    return (f"With {email_ai_name(ai, engine)}, the email you reply to — the whole thread — plus your "
             f"instructions and your private notes about the contact are sent to {company} "
             f"to write the reply.\n\nYour mail password is never sent. The local model keeps "
             f"everything on your own computer or server.")
@@ -81,6 +97,8 @@ def email_ai_settings(cfg=None):
         ai = 'local'
     if ai == 'local':
         return ai, EMAIL_MODEL, ''
+    if ai == 'agent':
+        return ai, email_ai_name(ai, cfg.get('engine', 'aider')), ''
     model = cfg.get('email_ai_model') or EMAIL_AI_MODELS[ai][0]
     key = cfg.get('email_ai_key', '')
     if not key and cfg.get('provider') == EMAIL_AI_CODING_PROVIDER[ai]:
@@ -100,12 +118,41 @@ PROVIDER_ENV = {'Gemini': 'GEMINI_API_KEY', 'OpenAI': 'OPENAI_API_KEY', 'Claude'
 # Which coding agent "Call Coda" opens. Everything except aider brings its
 # own login and model choice, so Coda only passes the folder.
 ENGINES = {
-    'claude':       {'label': 'Claude Code',  'cmd': 'claude',       'url': 'https://claude.com/claude-code'},
-    'codex':        {'label': 'Codex CLI',    'cmd': 'codex',        'url': 'https://github.com/openai/codex'},
-    'cursor-agent': {'label': 'Cursor Agent', 'cmd': 'cursor-agent', 'url': 'https://cursor.com/cli'},
-    'gemini':       {'label': 'Gemini CLI',   'cmd': 'gemini',       'url': 'https://github.com/google-gemini/gemini-cli'},
-    'aider':        {'label': 'Aider',        'cmd': 'aider',        'url': 'https://aider.chat'},
+    'claude':       {'label': 'Claude Code',  'cmd': 'claude',       'url': 'https://claude.com/claude-code', 'company': 'Anthropic'},
+    'codex':        {'label': 'Codex CLI',    'cmd': 'codex',        'url': 'https://github.com/openai/codex', 'company': 'OpenAI'},
+    'cursor-agent': {'label': 'Cursor Agent', 'cmd': 'cursor-agent', 'url': 'https://cursor.com/cli', 'company': 'Cursor'},
+    'gemini':       {'label': 'Gemini CLI',   'cmd': 'gemini',       'url': 'https://github.com/google-gemini/gemini-cli', 'company': 'Google'},
+    'aider':        {'label': 'Aider',        'cmd': 'aider',        'url': 'https://aider.chat', 'company': ''},
 }
+
+# Coding agents that can take a first message, so Write Reply can hand
+# them an email. They open in a normal, visible terminal window.
+def agent_prompt_args(engine, prompt):
+    if engine == 'claude':
+        return ['--allowedTools', 'Bash(coda mail:*)', prompt]
+    if engine == 'gemini':
+        return ['-i', prompt]
+    if engine in ('codex', 'cursor-agent'):
+        return [prompt]
+    return None   # aider: no interactive first message
+
+
+EMAIL_DESK = os.path.join(DATA_DIR, 'email-desk')       # where the agent works on email
+EMAIL_EVENTS = os.path.join(RUNTIME_DIR, 'email-events')   # agent → Email Agent window
+
+
+def post_email_event(event):
+    """Tell a running Email Agent window about a suggestion, draft or sent mail."""
+    ensure_private_dir(RUNTIME_DIR)
+    ensure_private_dir(EMAIL_EVENTS)
+    event = dict(event, ts=time.time())
+    name = f'{time.time():.6f}-{os.getpid()}.json'
+    tmp = os.path.join(EMAIL_EVENTS, '.' + name)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, 'w') as f:
+        json.dump(event, f)
+    os.replace(tmp, os.path.join(EMAIL_EVENTS, name))
+
 
 DEFAULT_CONFIG = {
     'engine':           'aider',
@@ -326,11 +373,19 @@ def live_sessions():
     return alive
 
 
-def open_session_window(folder):
-    """Open a new terminal window running a Coda coding session in `folder`."""
+def open_session_window(folder, prompt=None, title=None):
+    """Open a new terminal window running a Coda coding session in `folder`.
+    `prompt` becomes the agent's first message (visible in the window)."""
     folder = os.path.abspath(os.path.expanduser(folder))
-    title = f'Coda · {session_label(load_config())}'
-    argv = coda_command() + ['code', '--keep-open', folder]
+    title = title or f'Coda · {session_label(load_config())}'
+    argv = coda_command() + ['code', '--keep-open']
+    if prompt:
+        ensure_private_dir(RUNTIME_DIR)
+        fd, pf = tempfile.mkstemp(prefix='prompt-', suffix='.txt', dir=RUNTIME_DIR)
+        with os.fdopen(fd, 'w') as f:
+            f.write(prompt)
+        argv += ['--prompt-file', pf]
+    argv.append(folder)
     if PLATFORM == 'Darwin':
         import shlex
         line = ' '.join(shlex.quote(a) for a in argv)
@@ -348,6 +403,100 @@ def open_session_window(folder):
             subprocess.Popen(term + argv, start_new_session=True)
             return
     raise RuntimeError('No terminal emulator found (tried gnome-terminal, konsole, xterm…)')
+
+
+EMAIL_DESK_RULES = """# Email desk — Coda
+
+You are helping {name} with their email, through Coda. {name} is watching this
+window and can talk to you here. Coda's Email Agent window is open next to it.
+
+## Commands (run them in the shell)
+
+- `{coda} mail read '<message-id>'`: the email, its whole thread, and {name}'s
+  private notes about the sender.
+- `{coda} mail list [--unread] [-n 20]`: recent inbox.
+- `{coda} mail contacts <address>`: {name}'s notes about one contact.
+- `{coda} mail suggest --reply-to '<message-id>' --body-file - <<'EOF'` … `EOF`:
+  puts your reply in {name}'s Coda window, where they review, edit and send it.
+  For a new email: `--to ADDRESS --subject "…"` instead of `--reply-to`.
+- `{coda} mail draft …` (same options): saves a draft in their mailbox. Only when asked.
+
+## How to write
+
+- Write as {name}, in the first person, and sign as {name}.
+- Match the language of the thread, and the length and formality the sender used.
+- {name}'s notes about a contact describe the relationship and the tone.
+  Use them only for tone and wording; never quote or mention them.
+- If {name} gave a rough draft or an instruction, keep their meaning and
+  improve the wording. Don't add promises, dates or facts they didn't give.
+- Write only the body: no subject line, no explanations inside it.
+
+## Rules
+
+- Deliver every version with `{coda} mail suggest`. When {name} asks for
+  changes here, run `suggest` again with the new version.
+- Never send email. {name} sends from Coda.
+- Never open Coda's config files and never print passwords.
+- Keep email content out of other tools, websites and files.
+"""
+
+
+def _coda_cmd_name():
+    return 'coda' if shutil.which('coda') else BIN_LAUNCHER
+
+
+def open_email_agent(task):
+    """Open the user's coding agent in a visible window, at the email desk,
+    with `task` as its first message. Returns the agent's label."""
+    cfg = load_config()
+    engine = cfg.get('engine', 'aider')
+    if agent_prompt_args(engine, 'x') is None:
+        raise RuntimeError(f"{ENGINES.get(engine, ENGINES['aider'])['label']} can't write emails for "
+                           "Coda. Choose Claude Code, Codex, Gemini CLI or Cursor Agent in "
+                           "Preferences → Call Coda.")
+    if not find_engine(engine):
+        raise RuntimeError(f"{ENGINES[engine]['label']} is not installed — see {ENGINES[engine]['url']}")
+    ensure_private_dir(EMAIL_DESK)
+    rules = EMAIL_DESK_RULES.format(name=cfg.get('user_name') or 'the user', coda=_coda_cmd_name())
+    for fn in ('CLAUDE.md', 'AGENTS.md', 'GEMINI.md'):
+        with open(os.path.join(EMAIL_DESK, fn), 'w') as f:
+            f.write(rules)
+    label = ENGINES[engine]['label']
+    open_session_window(EMAIL_DESK, prompt=task, title=f'Coda Email · {label}')
+    return label
+
+
+def email_agent_reply_task(message_id, instruction, rough=''):
+    coda = _coda_cmd_name()
+    q = "'" + message_id.replace("'", "'\\''") + "'"
+    t = (f"Write my reply to the email {message_id}. Read it first with `{coda} mail read {q}`, "
+         f"then put the reply in my Coda window with `{coda} mail suggest --reply-to {q} --body-file -`. "
+         f"Follow the email desk rules in this folder.\n\n")
+    t += f"What I want to say: {instruction or '(nothing specific: write a fitting reply)'}"
+    if rough:
+        t += f"\n\nMy rough draft, improve it:\n{rough}"
+    return t
+
+
+def email_agent_new_task(to, subject, instruction, rough=''):
+    coda = _coda_cmd_name()
+    t = (f"Write a new email for me{' to ' + to if to else ''}"
+         f"{' with the subject «' + subject + '»' if subject else ''}. "
+         + (f"Check my notes on the recipient with `{coda} mail contacts {to}`, then p" if to else "P")
+         + f"ut it in my Coda window with `{coda} mail suggest --to ADDRESS --subject \"…\" --body-file -`. "
+         f"Follow the email desk rules in this folder.\n\nWhat I want to say: {instruction}")
+    if rough:
+        t += f"\n\nMy rough draft, improve it:\n{rough}"
+    return t
+
+
+def email_agent_inbox_task():
+    coda = _coda_cmd_name()
+    return (f"Go through my recent inbox (`{coda} mail list --unread`, or `{coda} mail list` if "
+            f"nothing is unread). Give me a short summary: who wrote, what they want, and which "
+            f"emails need an answer. Then ask me which ones to answer and how. Write each reply "
+            f"with `{coda} mail suggest`, or save it as a draft with `{coda} mail draft` if I say "
+            f"so. Follow the email desk rules in this folder.")
 
 
 # ── Email model (Ollama) ──────────────────────────────────────────────

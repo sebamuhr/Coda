@@ -90,6 +90,8 @@ Sam
 EOF
 ```
 
+If Coda's Email Agent window is open (the user asked from there), use `coda mail suggest` with the same options instead of `draft`: it puts the text in that window for the user to review and send.
+
 `--reply-to` fills in the recipient and the `Re:` subject, and threads the draft correctly. For a new email, use `--to` and `--subject` instead.
 
 ### Sending

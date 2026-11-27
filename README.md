@@ -108,6 +108,8 @@ Closing the email window with X does **not** quit it — click **C → Email Age
 
 **Privacy:** by default the Email Agent writes with a small local model (`coda2.0:3b`, based on Qwen 2.5 3B) through Ollama — on this computer or on your own server — so no email content leaves your machines. Coda connects straight to your mail provider over IMAP/SMTP with an app password.
 
+**Write with Claude Code, on your own plan.** In **Preferences → Email → Writes with**, choose **Your coding agent**. Write Reply then opens your coding agent (Claude Code, Codex, Gemini CLI or Cursor Agent; the one picked on the Call Coda tab) in its own window, already asked to answer that email. It reads the thread, writes the reply in your voice and puts it back in Coda's reply box, where you edit, save or send it. Type a vague instruction or a rough draft and it improves it. You can also ask it for changes in its window. A **✨ Ask … about my inbox** button opens it to summarize your inbox and help you answer. No API key is needed: it is your own agent with your own login, in a window you can see.
+
 **Want stronger writing?** In **Preferences → Email → Writes with** you can choose **Claude**, **Gemini** or **OpenAI** with your own API key. Coda warns you first, because the email thread you reply to, your instructions and your contact notes are then sent to that company. Your mail password never is. While a cloud model is active, the Email Agent's title bar says so.
 
 **Don't need email?** Untick **Use the Email Agent** in **Preferences → Email**. The Email Agent then disappears from the tray menu, and the menu only shows Launch Coda and the coding agent settings.
