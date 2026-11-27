@@ -82,46 +82,57 @@ def remove_path(path):
 
 
 # ── Processes ─────────────────────────────────────────────────────────
+GUI_PATTERN = r'coda-(tray|email|preferences)\.py'
+
+
 def coda_pids():
-    """PIDs of running Coda GUI processes (any install location)."""
-    out = subprocess.run(['pgrep', '-f', r'coda-(tray|email|preferences)\.py'],
-                         capture_output=True, text=True).stdout.split()
-    return [int(p) for p in out if p.isdigit() and int(p) != os.getpid()]
+    """PIDs of running Coda GUI processes (any install location).
+
+    Only Python processes count: a shell or an editor whose command line
+    merely mentions coda-tray.py must never be stopped."""
+    if C.WINDOWS:
+        ps = ("Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^pythonw?\\.exe$' "
+              "-and $_.CommandLine -match '" + GUI_PATTERN + "' } | ForEach-Object { $_.ProcessId }")
+        try:
+            out = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', ps],
+                                 capture_output=True, text=True, timeout=30,
+                                 creationflags=0x08000000).stdout.split()
+        except (OSError, subprocess.TimeoutExpired):
+            out = []
+        pids = [int(p) for p in out if p.isdigit()]
+    else:
+        out = subprocess.run(['pgrep', '-f', GUI_PATTERN],
+                             capture_output=True, text=True).stdout.split()
+        pids = []
+        for p in out:
+            if not p.isdigit():
+                continue
+            comm = subprocess.run(['ps', '-o', 'comm=', '-p', p],
+                                  capture_output=True, text=True).stdout.strip()
+            if 'python' in os.path.basename(comm).lower():
+                pids.append(int(p))
+    # Never ourselves, nor a Preferences window that started us (`coda update`).
+    me = {os.getpid()}
+    if os.environ.get('CODA_CALLER_PID', '').isdigit():
+        me.add(int(os.environ['CODA_CALLER_PID']))
+    return [p for p in pids if p not in me]
 
 
 def stop_coda(wait=5.0):
     pids = coda_pids()
     for pid in pids:
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
+        C.terminate(pid, tree=False)   # not the tree: open coding sessions stay open
     deadline = time.time() + wait
-    while time.time() < deadline and any(_alive(p) for p in pids):
+    while time.time() < deadline and any(C.pid_alive(p) for p in pids):
         time.sleep(0.2)
     for pid in pids:
-        if _alive(pid):
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+        if C.pid_alive(pid):
+            C.terminate(pid, tree=False, force=True)
     return pids
 
 
-def _alive(pid):
-    try:
-        os.kill(pid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-
-
 def spawn_gui(script):
-    subprocess.Popen([C.python_bin(), os.path.join(C.CODE_DIR, script)],
-                     start_new_session=True, stdin=subprocess.DEVNULL,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    C.detached_popen([C.python_bin(gui=True), os.path.join(C.CODE_DIR, script)])
 
 
 # ── coda code ─────────────────────────────────────────────────────────
@@ -145,8 +156,16 @@ def cmd_code(args):
         extra_args, extra_env = C.aider_invocation(cfg)
     env = dict(os.environ, **extra_env)
 
-    sys.stdout.write(f'\033]0;Coda · {C.session_label(dict(cfg, engine=engine))}\007')
-    sys.stdout.flush()
+    title = f'Coda · {C.session_label(dict(cfg, engine=engine))}'
+    if C.WINDOWS:
+        try:
+            import ctypes
+            ctypes.windll.kernel32.SetConsoleTitleW(title)
+        except Exception:
+            pass
+    else:
+        sys.stdout.write(f'\033]0;{title}\007')
+        sys.stdout.flush()
     os.makedirs(C.MARKER_DIR, exist_ok=True)
     marker = os.path.join(C.MARKER_DIR, f'term_{os.getpid()}_{int(time.time())}')
     open(marker, 'w').close()
@@ -156,7 +175,7 @@ def cmd_code(args):
     def _forward(signum, _frame):
         if child and child.poll() is None:
             child.send_signal(signum)
-        if signum in (signal.SIGHUP, signal.SIGTERM):
+        if signum != signal.SIGINT:
             _cleanup()
             os._exit(0)
 
@@ -166,8 +185,9 @@ def cmd_code(args):
         except OSError:
             pass
 
-    for s in (signal.SIGHUP, signal.SIGTERM):
-        signal.signal(s, _forward)
+    for name in ('SIGHUP', 'SIGTERM'):   # Windows has no SIGHUP
+        if hasattr(signal, name):
+            signal.signal(getattr(signal, name), _forward)
     signal.signal(signal.SIGINT, signal.SIG_IGN)   # the agent handles Ctrl-C itself
     try:
         child = subprocess.Popen([exe] + extra_args, cwd=folder, env=env)
@@ -176,8 +196,12 @@ def cmd_code(args):
         _cleanup()
     if args.keep_open:
         # Keep the window open in the project folder, like a normal terminal.
-        shell = os.environ.get('SHELL') or '/bin/bash'
         os.chdir(folder)
+        if C.WINDOWS:
+            shell = shutil.which('pwsh') or shutil.which('powershell')
+            sys.exit(subprocess.call([shell, '-NoLogo'] if shell else
+                                     [os.environ.get('COMSPEC', 'cmd.exe')]))
+        shell = os.environ.get('SHELL') or '/bin/bash'
         os.execvp(shell, [shell, '-i'])
 
 
@@ -206,6 +230,21 @@ def _write(path, text, mode=0o644):
 
 def write_launcher():
     py = C.python_bin()
+    if C.WINDOWS:
+        # cmd.exe reads .cmd files in the console code page, so a user name
+        # like "José" would break a literal path. Environment variables don't.
+        def winpath(p):
+            for var in ('LOCALAPPDATA', 'APPDATA', 'USERPROFILE'):
+                base = os.environ.get(var)
+                if base and os.path.normcase(p).startswith(os.path.normcase(base) + os.sep):
+                    return f'%{var}%' + p[len(base):]
+            return p
+        os.makedirs(C.BIN_DIR, exist_ok=True)
+        with open(C.BIN_LAUNCHER, 'w', newline='\r\n', encoding='ascii', errors='replace') as f:
+            f.write(f'@echo off\nrem {C.LAUNCHER_TAG} - created by the Coda installer; '
+                    f'removed by "coda uninstall"\n'
+                    f'"{winpath(py)}" "{winpath(os.path.join(C.CODE_DIR, "coda.py"))}" %*\n')
+        return
     _write(C.BIN_LAUNCHER,
            f'#!/bin/sh\n{C.LAUNCHER_TAG} — created by the Coda installer; '
            f'removed by "coda uninstall"\nexec "{py}" "{os.path.join(C.CODE_DIR, "coda.py")}" "$@"\n',
@@ -224,7 +263,10 @@ def write_icon_png(path):
     r, lw = S * 0.32, int(S / 9)
     d.arc([S / 2 - r, S / 2 - r, S / 2 + r, S / 2 + r], start=40, end=320, fill='black', width=lw)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    img.save(path)
+    if path.lower().endswith('.ico'):
+        img.save(path, format='ICO', sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (256, 256)])
+    else:
+        img.save(path)
     return True
 
 
@@ -251,7 +293,7 @@ def cleanup_email_leftovers():
 def cleanup_legacy(remove_old_copies=None, verbose=True):
     """Remove launchers/aliases/locks left by older Coda versions and stray copies."""
     removed = []
-    files = LEGACY_LINUX if C.PLATFORM == 'Linux' else LEGACY_MAC
+    files = LEGACY_LINUX if C.PLATFORM == 'Linux' else LEGACY_MAC if C.PLATFORM == 'Darwin' else []
     for p in files + LEGACY_RUNTIME:
         if remove_path(ex(p)):
             removed.append(p)
@@ -302,7 +344,19 @@ def cmd_integrate(args):
     write_launcher()
     say(f'  ✓  command:     {C.BIN_LAUNCHER}')
     tray = f'"{C.python_bin()}" "{os.path.join(C.CODE_DIR, "coda-tray.py")}"'
-    if C.PLATFORM == 'Linux':
+    if C.WINDOWS:
+        import coda_windows as W
+        write_icon_png(W.ICON_FILE)
+        W.install_context_menu()
+        say('  ✓  right-click "Call Coda" on folders (Windows 11: under "Show more options")')
+        W.set_autostart(not args.no_autostart)
+        if not args.no_autostart:
+            say('  ✓  start on login')
+        if W.write_start_menu_shortcut():
+            say('  ✓  Start menu shortcut')
+        if W.add_to_path(C.BIN_DIR):
+            say('  ✓  added the coda command to your PATH (open a new terminal to use it)')
+    elif C.PLATFORM == 'Linux':
         icon = ex('~/.local/share/icons/coda.png')
         write_icon_png(icon)
         desktop = ('[Desktop Entry]\nType=Application\nName=Coda\n'
@@ -355,7 +409,7 @@ def cmd_integrate(args):
         say('  ✓  login item and ~/Applications/Coda.app')
     C.write_install(C.CODE_DIR, managed=os.path.realpath(C.CODE_DIR) == os.path.realpath(C.MANAGED_APP_DIR))
     path_dirs = os.environ.get('PATH', '').split(os.pathsep)
-    if os.path.dirname(C.BIN_LAUNCHER) not in path_dirs:
+    if not C.WINDOWS and C.BIN_DIR not in path_dirs:
         say('  ⚠  ~/.local/bin is not on your PATH yet — log out and in, or add it to your shell rc.')
 
 
@@ -380,9 +434,15 @@ def cmd_doctor(_args):
     for d in LEGACY_APP_DIRS:
         if os.path.isdir(ex(d)) and os.path.realpath(ex(d)) != os.path.realpath(C.CODE_DIR):
             problems.append(f'extra copy of Coda at {d}')
-    for p in (LEGACY_LINUX if C.PLATFORM == 'Linux' else LEGACY_MAC):
+    for p in (LEGACY_LINUX if C.PLATFORM == 'Linux' else LEGACY_MAC if C.PLATFORM == 'Darwin' else []):
         if os.path.exists(ex(p)):
             problems.append(f'leftover from an old version: {p}')
+    if C.WINDOWS and inst.get('code_dir'):
+        import coda_windows as W
+        if not W.context_menu_installed():
+            problems.append('the right-click "Call Coda" entry is missing')
+        if not W.on_path(C.BIN_DIR):
+            problems.append('the coda command is not on your PATH')
     for rc in SHELL_RCS:
         try:
             if any(l.lstrip().startswith('alias coda=') for l in open(ex(rc))):
@@ -421,6 +481,8 @@ def cmd_update(args):
             src = next(p for p in glob.glob(os.path.join(tmp, '*')) if os.path.isdir(p))
             if not os.path.exists(os.path.join(src, 'coda.py')):
                 sys.exit('coda: download does not look like Coda — update aborted')
+            if C.WINDOWS:   # Windows can't rename a folder that a running program uses
+                stop_coda()
             old = C.CODE_DIR + '.old'
             shutil.rmtree(old, ignore_errors=True)
             os.rename(C.CODE_DIR, old)
@@ -430,7 +492,7 @@ def cmd_update(args):
             shutil.rmtree(tmp, ignore_errors=True)
     # Re-run integration from the *new* code, then restart the tray.
     subprocess.run(C.coda_command() + ['integrate', '--no-cleanup'], check=False)
-    if args.restart and stop_coda():
+    if args.restart and (stop_coda() or C.WINDOWS):
         spawn_gui('coda-tray.py')
     say('✓ Coda is up to date.')
 
@@ -443,7 +505,17 @@ def cmd_uninstall(args):
     if stopped:
         say(f'  ✓  stopped running Coda ({len(stopped)} process{"es" if len(stopped) != 1 else ""})')
 
-    for p in (LINUX_FILES if C.PLATFORM == 'Linux' else MAC_FILES):
+    if C.WINDOWS:
+        import coda_windows as W
+        if W.remove_context_menu():
+            say('  ✓  removed the right-click "Call Coda" entry')
+        if W.set_autostart(False):
+            say('  ✓  removed start on login')
+        if W.remove_start_menu_shortcut():
+            say('  ✓  removed the Start menu shortcut')
+        if W.remove_from_path(C.BIN_DIR):
+            say('  ✓  removed the coda command from your PATH')
+    for p in (LINUX_FILES if C.PLATFORM == 'Linux' else MAC_FILES if C.PLATFORM == 'Darwin' else []):
         if C.PLATFORM == 'Darwin' and p.endswith('.plist'):
             subprocess.run(['launchctl', 'unload', ex(p)], capture_output=True)
         if remove_path(ex(p)):
@@ -455,14 +527,14 @@ def cmd_uninstall(args):
     try:
         if C.LAUNCHER_TAG in open(C.BIN_LAUNCHER).read():
             os.remove(C.BIN_LAUNCHER)
-            say('  ✓  removed ~/.local/bin/coda')
+            say(f'  ✓  removed {C.BIN_LAUNCHER.replace(H, "~")}')
     except OSError:
         pass
 
     if not args.keep_config and confirm(
-            'Remove your settings (~/.config/coda)?', default=True, assume=yes):
+            f'Remove your settings ({C.CONFIG_DIR.replace(H, "~")})?', default=True, assume=yes):
         if remove_path(C.CONFIG_DIR):
-            say('  ✓  removed ~/.config/coda')
+            say(f'  ✓  removed {C.CONFIG_DIR.replace(H, "~")}')
 
     legacy_aider = ex('~/aider-env')
     if os.path.isdir(legacy_aider) and confirm(
@@ -483,8 +555,13 @@ def cmd_uninstall(args):
     # The data dir holds the venvs and (for normal installs) the app itself.
     # A developer's git checkout is never deleted.
     code_is_managed = os.path.realpath(C.CODE_DIR).startswith(os.path.realpath(C.DATA_DIR) + os.sep)
-    if remove_path(C.DATA_DIR):
-        say('  ✓  removed ~/.local/share/coda')
+    if C.WINDOWS and os.path.isdir(C.DATA_DIR):
+        # We are running from inside it; it is deleted a few seconds after we exit.
+        import coda_windows as W
+        W.remove_dir_after_exit(C.DATA_DIR)
+        say(f'  ✓  removing {C.DATA_DIR.replace(H, "~")} (finishes a few seconds after this window closes)')
+    elif remove_path(C.DATA_DIR):
+        say(f'  ✓  removed {C.DATA_DIR.replace(H, "~")}')
     kept = [d for d in [C.CODE_DIR] + [ex(x) for x in LEGACY_APP_DIRS]
             if not code_is_managed or d != C.CODE_DIR]
     for d in kept:
@@ -494,6 +571,13 @@ def cmd_uninstall(args):
 
 
 def main():
+    if C.WINDOWS:
+        # Windows pipes use an old code page that has no ✓; never crash on it.
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.reconfigure(errors='replace')
+            except (AttributeError, ValueError):
+                pass
     ap = argparse.ArgumentParser(prog='coda', description='Coda — open your AI coding agent in any folder')
     sub = ap.add_subparsers(dest='cmd')
     p = sub.add_parser('code', help='coding session in this terminal')

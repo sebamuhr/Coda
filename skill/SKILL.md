@@ -1,6 +1,6 @@
 ---
 name: coda
-description: Installs and manages Coda, which adds "Call Coda" to the right-click menu of every folder so the user's coding agent (Claude Code, Codex, Cursor Agent, Gemini CLI or Aider) opens there in one click, plus a tray icon and a `coda` terminal command. Use when the user wants to open their coding agent from the file manager or a folder, set up or fix the right-click menu, switch which agent opens, or update or uninstall Coda.
+description: Installs and manages Coda (Linux, Windows, macOS), which adds "Call Coda" to the right-click menu of every folder so the user's coding agent (Claude Code, Codex, Cursor Agent, Gemini CLI or Aider) opens there in one click, plus a tray icon and a `coda` terminal command. Use when the user wants to open their coding agent from the file manager or a folder, set up or fix the right-click menu, switch which agent opens, or update or uninstall Coda.
 ---
 
 # Coda
@@ -27,10 +27,17 @@ Ask the user which coding agent Call Coda should open. Suggest the one you're ru
 bash "<this skill's folder>/app/install.sh" --yes --engine claude
 ```
 
+On **Windows** (PowerShell; no administrator rights needed):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "<this skill's folder>\app\install.ps1" -Yes -Engine claude
+```
+
 - `--yes` asks nothing.
 - The installer needs `sudo apt-get` for a few system packages on Ubuntu/Debian. If you can't enter a password, add `--skip-system` and tell the user to run `sudo apt install python3-venv python3-tk python3-nautilus gir1.2-ayatanaappindicator3-0.1`.
 - Running it again is safe: it updates in place, keeps settings and removes old duplicate copies.
-- Supports Linux (GNOME Files for the right-click menu) and macOS (menu bar icon plus the `coda` command; Finder has no right-click entry).
+- Supports Linux (GNOME Files for the right-click menu), Windows 10/11 (Explorer right-click; on Windows 11 under "Show more options") and macOS (menu bar icon plus the `coda` command; Finder has no right-click entry).
+- On Windows the `coda` command works in terminals opened after the install.
 
 After installing, tell the user:
 - Right-click any folder in Files → **Call Coda**. The menu item only appears while the C icon is in the tray.
@@ -63,6 +70,7 @@ coda code --engine codex /path/to/folder
   - Is the C icon in the tray? If not, run `coda tray`.
   - Run `coda integrate`, which reinstalls the menu entry and restarts Files.
   - On Ubuntu the `python3-nautilus` package must be installed.
+  - On Windows 11 it is under right-click → **Show more options**. On Windows, Call Coda works even when the tray icon isn't running.
 - **A terminal opens and says the agent isn't installed:** install that agent, or pick another one in Preferences.
 - **Aider says an API key is missing:** the user adds it in Preferences → Call Coda. Never ask for keys in chat.
 

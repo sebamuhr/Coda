@@ -2,7 +2,7 @@
 
 > **Right-click any folder → your AI coding agent opens right there.**
 
-No more `cd ~/some/long/path && claude` every time. Coda adds **Call Coda** to the right-click menu of every folder, and a small **C** icon to your system tray (Linux) or menu bar (macOS). One click, and Claude Code, Codex, Cursor Agent, Gemini CLI or Aider is working in that folder.
+No more `cd ~/some/long/path && claude` every time. Coda adds **Call Coda** to the right-click menu of every folder, and a small **C** icon to your system tray (Linux, Windows) or menu bar (macOS). One click, and Claude Code, Codex, Cursor Agent, Gemini CLI or Aider is working in that folder.
 
 ---
 
@@ -10,7 +10,7 @@ No more `cd ~/some/long/path && claude` every time. Coda adds **Call Coda** to t
 
 | Feature | Description |
 |---|---|
-| **Right-click → Call Coda** | Opens your coding agent in any folder from the file manager (Linux, GNOME Files) |
+| **Right-click → Call Coda** | Opens your coding agent in any folder from the file manager (Linux with GNOME Files, and Windows) |
 | **Launch Coda** | Folder picker from the tray icon to start a session anywhere |
 | **`coda` command** | Type `coda` in any terminal to start a session in that folder |
 | **Your agent, your login** | Claude Code, Codex, Cursor Agent, Gemini CLI or Aider: switch from the tray in one click |
@@ -45,7 +45,7 @@ Coda never touches your agent's login: it just opens the agent, as published by 
 
 Start a session in three ways:
 
-- **Right-click any folder → Call Coda** in your file manager *(Linux; see the macOS note below)*
+- **Right-click any folder → Call Coda** in your file manager *(Linux and Windows; see the notes below)*
 - **C → Launch Coda** in the tray → pick a folder
 - From the terminal:
 
@@ -54,6 +54,8 @@ cd ~/my-project
 coda
 ```
 
+> **Windows 11 note:** Call Coda is in the classic right-click menu: right-click a folder → **Show more options** → **Call Coda** (or Shift + right-click). The short Windows 11 menu only shows apps with a signed app package.
+>
 > **macOS note:** Finder doesn't let apps add right-click actions without a signed App Extension, so on macOS use **C → Launch Coda** from the menu bar or the `coda` command.
 
 ### With Aider
@@ -75,6 +77,7 @@ Every change Aider makes is committed to git; `/undo` rolls back the last one. O
 
 - **Linux:** Debian/Ubuntu based (tested on Zorin OS and Ubuntu); the right-click menu needs GNOME Files (Nautilus)
 - **macOS:** Ventura or later, with [Homebrew](https://brew.sh)
+- **Windows:** 10 or 11 (the installer sets up Python with winget if it is missing)
 - Python 3.10+
 - A coding agent (Claude Code, Codex, Cursor Agent, Gemini CLI), or Aider, which the installer can set up for you
 
@@ -86,9 +89,19 @@ Every change Aider makes is committed to git; `/undo` rolls back the last one. O
 bash <(curl -fsSL https://raw.githubusercontent.com/sebamuhr/Coda/main/install.sh)
 ```
 
+**Windows** (in PowerShell; no administrator rights needed):
+
+```powershell
+irm https://raw.githubusercontent.com/sebamuhr/Coda/main/install.ps1 | iex
+```
+
 The installer asks which coding agent to open. It is **safe to run again**: it updates in place, keeps your settings, and removes any old duplicate copies of Coda it finds.
 
-Useful options: `--yes` (no questions), `--engine claude`, `--reconfigure`, `--no-autostart`. Run with `--help` for the full list.
+Useful options: `--yes` (no questions), `--engine claude`, `--reconfigure`, `--no-autostart`. Run with `--help` for the full list. On Windows: `-Yes`, `-Engine claude`, `-NoAutostart`, passed like this:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/sebamuhr/Coda/main/install.ps1))) -Engine claude
+```
 
 **From source (developers):**
 
@@ -108,6 +121,7 @@ Coda then runs straight from your checkout, so your edits take effect on the nex
 | `~/.local/bin/coda` | the `coda` command |
 | `~/.config/autostart/coda.desktop`, `~/.local/share/applications/coda.desktop` | start on login, app menu entry (Linux) |
 | `~/Library/LaunchAgents/com.coda.plist`, `~/Applications/Coda.app` | the same on macOS |
+| `%LOCALAPPDATA%\Coda` (app, Python environment, `coda.cmd`), `%APPDATA%\Coda` (settings) | Windows; plus the right-click entry, start on login and the `coda` PATH entry in your user registry, and a Start menu shortcut |
 
 Nothing is written to your shell config, and API keys are never placed on a command line.
 
@@ -135,6 +149,8 @@ If Coda is broken or half-removed:
 bash <(curl -fsSL https://raw.githubusercontent.com/sebamuhr/Coda/main/uninstall.sh)
 ```
 
+On Windows: `irm https://raw.githubusercontent.com/sebamuhr/Coda/main/uninstall.ps1 | iex`
+
 ---
 
 ## Use Coda from your AI agent (skill)
@@ -154,7 +170,7 @@ Your desktop
 │   ├── Preferences  ──────────────► configure everything
 │   └── Quit  ─────────────────────► closes everything cleanly
 │
-├── File manager right-click  (Linux)
+├── File manager right-click  (Linux, Windows)
 │   └── Call Coda  ────────────────► coding terminal in that folder
 │
 └── Terminal
@@ -184,7 +200,7 @@ Nothing fancy. Just works.
 Pull requests welcome! Ideas:
 
 - Support for other file managers (Dolphin, Thunar)
-- Windows support
+- A signed package so Call Coda shows in the short Windows 11 menu
 - A Finder extension for macOS
 
 ---

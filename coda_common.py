@@ -12,9 +12,10 @@ import shutil
 import subprocess
 import tempfile
 
-VERSION  = '2.0.0'
+VERSION  = '2.1.0'
 REPO     = 'sebamuhr/Coda'
-PLATFORM = platform.system()          # 'Linux' or 'Darwin'
+PLATFORM = platform.system()          # 'Linux', 'Darwin' or 'Windows'
+WINDOWS  = PLATFORM == 'Windows'
 HOME     = os.path.expanduser('~')
 
 # ── Paths ─────────────────────────────────────────────────────────────
@@ -24,8 +25,23 @@ HOME     = os.path.expanduser('~')
 # Data     : everything the installer creates (venvs, managed app copy).
 # Runtime  : lock + session markers; per-user and wiped on reboot.
 CODE_DIR    = os.path.dirname(os.path.abspath(__file__))
-CONFIG_DIR  = os.path.join(os.environ.get('XDG_CONFIG_HOME') or os.path.join(HOME, '.config'), 'coda')
-DATA_DIR    = os.path.join(os.environ.get('XDG_DATA_HOME') or os.path.join(HOME, '.local', 'share'), 'coda')
+if WINDOWS:
+    # %APPDATA%\Coda for settings, %LOCALAPPDATA%\Coda for everything else.
+    _appdata = os.environ.get('APPDATA') or os.path.join(HOME, 'AppData', 'Roaming')
+    _local   = os.environ.get('LOCALAPPDATA') or os.path.join(HOME, 'AppData', 'Local')
+    CONFIG_DIR = os.path.join(_appdata, 'Coda')
+    DATA_DIR   = os.path.join(_local, 'Coda')
+    BIN_DIR    = os.path.join(DATA_DIR, 'bin')
+    BIN_LAUNCHER = os.path.join(BIN_DIR, 'coda.cmd')
+    RUNTIME_DIR = os.path.join(tempfile.gettempdir(), 'coda')   # %TEMP% is per user
+else:
+    CONFIG_DIR = os.path.join(os.environ.get('XDG_CONFIG_HOME') or os.path.join(HOME, '.config'), 'coda')
+    DATA_DIR   = os.path.join(os.environ.get('XDG_DATA_HOME') or os.path.join(HOME, '.local', 'share'), 'coda')
+    BIN_DIR    = os.path.join(HOME, '.local', 'bin')
+    BIN_LAUNCHER = os.path.join(BIN_DIR, 'coda')
+    _rt = os.environ.get('XDG_RUNTIME_DIR')
+    RUNTIME_DIR = os.path.join(_rt, 'coda') if _rt and os.path.isdir(_rt) \
+        else os.path.join(tempfile.gettempdir(), f'coda-{os.getuid()}')
 CONFIG_FILE = os.path.join(CONFIG_DIR, 'config.json')
 LEGACY_CONFIG_FILES = [os.path.join(CONFIG_DIR, n) for n in
                        ('email.conf', 'contacts.json', 'window.json')]
@@ -33,13 +49,10 @@ INSTALL_FILE = os.path.join(DATA_DIR, 'install.json')
 MANAGED_APP_DIR = os.path.join(DATA_DIR, 'app')
 VENV_DIR    = os.path.join(DATA_DIR, 'venv')
 AIDER_ENV   = os.path.join(DATA_DIR, 'aider-env')
-BIN_LAUNCHER = os.path.join(HOME, '.local', 'bin', 'coda')
-LAUNCHER_TAG = '# coda-launcher'   # marks ~/.local/bin/coda as ours
+LAUNCHER_TAG = '# coda-launcher'   # marks the 'coda' command as ours
 
-_rt = os.environ.get('XDG_RUNTIME_DIR')
-RUNTIME_DIR = os.path.join(_rt, 'coda') if _rt and os.path.isdir(_rt) \
-    else os.path.join(tempfile.gettempdir(), f'coda-{os.getuid()}')
 LOCK_FILE    = os.path.join(RUNTIME_DIR, 'tray.lock')
+PID_FILE     = os.path.join(RUNTIME_DIR, 'tray.pid')
 RUNNING_FILE = os.path.join(RUNTIME_DIR, 'running')
 MARKER_DIR   = os.path.join(RUNTIME_DIR, 'sessions')   # one file per coding session
 
@@ -144,17 +157,88 @@ def is_git_checkout(path):
     return os.path.isdir(os.path.join(path, '.git'))
 
 
-def python_bin():
-    """The interpreter Coda's GUI parts run with."""
-    venv_py = os.path.join(VENV_DIR, 'bin', 'python3')
-    return venv_py if os.access(venv_py, os.X_OK) else (shutil.which('python3') or '/usr/bin/python3')
+def venv_bin(venv, name):
+    """Path of an executable inside a virtualenv (bin/ or Scripts\\)."""
+    if WINDOWS:
+        return os.path.join(venv, 'Scripts', name + '.exe')
+    return os.path.join(venv, 'bin', name)
+
+
+def python_bin(gui=False):
+    """The interpreter Coda runs with. On Windows, gui=True gives pythonw.exe
+    (no console window) for the tray and Preferences."""
+    venv_py = venv_bin(VENV_DIR, 'pythonw' if (gui and WINDOWS) else 'python' if WINDOWS else 'python3')
+    if os.path.exists(venv_py):
+        return venv_py
+    import sys
+    if WINDOWS and gui:
+        w = os.path.join(os.path.dirname(sys.executable), 'pythonw.exe')
+        if os.path.exists(w):
+            return w
+    return sys.executable or shutil.which('python3') or '/usr/bin/python3'
 
 
 def coda_command():
     """argv prefix that runs the Coda CLI."""
-    if os.access(BIN_LAUNCHER, os.X_OK):
+    if not WINDOWS and os.access(BIN_LAUNCHER, os.X_OK):
         return [BIN_LAUNCHER]
     return [python_bin(), os.path.join(CODE_DIR, 'coda.py')]
+
+
+# ── Processes (portable) ──────────────────────────────────────────────
+def pid_alive(pid):
+    """True if a process with this PID exists. (Never use os.kill(pid, 0) for
+    this on Windows: there it *terminates* the process.)"""
+    if pid <= 0:
+        return False
+    if WINDOWS:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        code = ctypes.c_ulong()
+        ok = k32.GetExitCodeProcess(h, ctypes.byref(code))
+        k32.CloseHandle(h)
+        return bool(ok) and code.value == 259     # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def terminate(pid, tree=True, force=False):
+    """Stop a process (and, on Windows, everything it started)."""
+    if WINDOWS:
+        subprocess.run(['taskkill', '/PID', str(pid)] + (['/T'] if tree else []) + (['/F'] if force else []),
+                       capture_output=True, creationflags=0x08000000)   # CREATE_NO_WINDOW
+        return
+    import signal
+    try:
+        os.kill(pid, signal.SIGKILL if force else signal.SIGTERM)
+    except OSError:
+        pass
+
+
+def detached_popen(argv, **kw):
+    """Start a program that outlives us, without a console window."""
+    if WINDOWS:
+        kw.setdefault('creationflags', 0x00000008 | 0x00000200)   # DETACHED_PROCESS | NEW_PROCESS_GROUP
+    else:
+        kw.setdefault('start_new_session', True)
+    return subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, **kw)
+
+
+def read_tray_pid():
+    try:
+        with open(PID_FILE) as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return None
 
 
 # ── Coding sessions (aider) ───────────────────────────────────────────
@@ -162,8 +246,8 @@ def find_aider(cfg=None):
     cfg = cfg or load_config()
     for env in (cfg.get('aider_env'), AIDER_ENV, os.path.join(HOME, 'aider-env')):
         if env:
-            exe = os.path.join(env, 'bin', 'aider')
-            if os.access(exe, os.X_OK):
+            exe = venv_bin(env, 'aider')
+            if os.path.exists(exe):
                 return exe
     return shutil.which('aider')
 
@@ -177,6 +261,18 @@ def find_engine(name):
     exe = shutil.which(cmd)
     if exe:
         return exe
+    if WINDOWS:
+        dirs = [os.path.join(HOME, '.local', 'bin'),                     # Claude Code's installer
+                os.path.join(os.environ.get('APPDATA', ''), 'npm'),      # npm install -g
+                os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Programs', cmd),
+                os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Microsoft', 'WinGet', 'Links'),
+                os.path.join(HOME, '.bun', 'bin'), os.path.join(HOME, '.cargo', 'bin')]
+        for d in dirs:
+            for ext in ('.exe', '.cmd', '.bat', ''):
+                p = os.path.join(d, cmd + ext)
+                if ext and os.path.isfile(p):
+                    return p
+        return None
     for d in ('~/.local/bin', '~/.npm-global/bin', '~/.bun/bin', '~/.cargo/bin',
               '/usr/local/bin', '/opt/homebrew/bin', '~/.claude/local'):
         p = os.path.join(os.path.expanduser(d), cmd)
@@ -235,15 +331,15 @@ def live_sessions():
         path = os.path.join(MARKER_DIR, name)
         try:
             pid = int(name.split('_')[1])
-            os.kill(pid, 0)
+        except (IndexError, ValueError):
+            pid = -1
+        if pid_alive(pid):
             alive.append((pid, path))
-        except (IndexError, ValueError, ProcessLookupError):
+        else:
             try:
                 os.remove(path)
             except OSError:
                 pass
-        except PermissionError:
-            alive.append((pid, path))
     return alive
 
 
@@ -252,6 +348,14 @@ def open_session_window(folder):
     folder = os.path.abspath(os.path.expanduser(folder))
     title = f'Coda · {session_label(load_config())}'
     argv = coda_command() + ['code', '--keep-open', folder]
+    if WINDOWS:
+        wt = shutil.which('wt') or shutil.which('wt.exe')
+        if wt:   # Windows Terminal, when installed (standard on Windows 11)
+            subprocess.Popen([wt, '-w', 'new', 'new-tab', '--title', title, '-d', folder] + argv,
+                             creationflags=0x08000000)
+        else:    # the classic console window
+            subprocess.Popen(argv, cwd=folder, creationflags=0x00000010)   # CREATE_NEW_CONSOLE
+        return
     if PLATFORM == 'Darwin':
         import shlex
         line = ' '.join(shlex.quote(a) for a in argv)

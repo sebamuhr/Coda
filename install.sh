@@ -85,8 +85,13 @@ command -v python3 >/dev/null || die "python3 is required."
 command -v curl    >/dev/null || die "curl is required."
 
 # Stop any running Coda (from any location) so files can be replaced safely.
-if pgrep -f 'coda-(tray|email|preferences)\.py' >/dev/null 2>&1; then
-    pkill -f 'coda-(tray|email|preferences)\.py' || true
+CODA_GUI_PIDS=""
+for pid in $(pgrep -f 'coda-(tray|email|preferences)\.py' 2>/dev/null); do
+    # Only Python processes: never a shell or editor that mentions the file.
+    case "$(ps -o comm= -p "$pid" 2>/dev/null)" in *ython*) CODA_GUI_PIDS="$CODA_GUI_PIDS $pid" ;; esac
+done
+if [ -n "$CODA_GUI_PIDS" ]; then
+    kill $CODA_GUI_PIDS 2>/dev/null || true
     sleep 1
     echo -e "  ${GRAY}Stopped the running Coda — it restarts at the end.${NC}"
 fi

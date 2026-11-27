@@ -2,7 +2,6 @@
 import subprocess
 import os
 import sys
-import fcntl
 import atexit
 import shutil
 import time
@@ -21,9 +20,10 @@ LOCK_FILE    = C.LOCK_FILE
 RUNNING_FILE = C.RUNNING_FILE   # tells the right-click extension the tray is up
 
 # --- Single instance (tray) ---
-# Held open for the whole process lifetime so the kernel keeps the flock.
-# flock is atomic (two simultaneous launches can't both win) and is released
-# automatically when the holder dies, so stale locks need no cleanup.
+# The lock file is held open (and locked) for the whole process lifetime. The
+# OS releases the lock automatically when the holder dies, so a stale lock
+# never blocks a new start. The PID goes in a separate file, because on
+# Windows a locked file can't be read by anyone else.
 _lock_fp = None
 
 def is_already_running():
@@ -31,7 +31,13 @@ def is_already_running():
     C.ensure_private_dir(C.RUNTIME_DIR)
     _lock_fp = open(LOCK_FILE, 'a+')
     try:
-        fcntl.flock(_lock_fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if C.WINDOWS:
+            import msvcrt
+            _lock_fp.seek(0)
+            msvcrt.locking(_lock_fp.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(_lock_fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         return True  # another instance holds the lock
     return False
@@ -39,16 +45,15 @@ def is_already_running():
 def write_lock():
     os.makedirs(C.MARKER_DIR, exist_ok=True)
     open(RUNNING_FILE, 'w').close()
-    _lock_fp.seek(0)
-    _lock_fp.truncate()
-    _lock_fp.write(str(os.getpid()))
-    _lock_fp.flush()
+    with open(C.PID_FILE, 'w') as f:
+        f.write(str(os.getpid()))
 
 def _cleanup_runtime():
-    try:
-        os.remove(RUNNING_FILE)
-    except OSError:
-        pass
+    for p in (RUNNING_FILE, C.PID_FILE):
+        try:
+            os.remove(p)
+        except OSError:
+            pass
 
 load_config = C.load_config
 save_config = C.save_config
@@ -107,9 +112,14 @@ def create_icon(count=0):
     return img
 
 # --- Notification ---
+_icon = None   # the tray icon, once it exists (Windows shows notifications through it)
+
 def show_notification(title, message):
     try:
-        if PLATFORM == 'Darwin':
+        if C.WINDOWS:
+            if _icon is not None:
+                _icon.notify(message, title)
+        elif PLATFORM == 'Darwin':
             t = title.replace('"', '\\"')
             m = message.replace('"', '\\"')
             subprocess.Popen(['osascript', '-e',
@@ -321,7 +331,7 @@ def launch_preferences(icon=None, query=None):
                     ], capture_output=True, timeout=2)
                 except Exception:
                     pass
-            else:
+            elif not C.WINDOWS:
                 try:
                     subprocess.run(['wmctrl', '-a', 'Coda — Preferences'],
                                    capture_output=True, timeout=2)
@@ -413,10 +423,7 @@ def quit_app(icon, query):
     # Each session is a `coda code` process: on SIGTERM it stops its own aider
     # and exits, which closes its terminal window. Nothing else is touched.
     for pid, _path in sessions:
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except OSError:
-            pass
+        C.terminate(pid, force=C.WINDOWS)   # Windows: the whole session, agent included
     for proc in [_prefs_proc]:
         try:
             if proc is not None and proc.poll() is None:
@@ -441,8 +448,7 @@ def _ensure_ollama_mac():
                      '/Applications/Ollama.app/Contents/Resources/ollama')
          if os.access(p, os.X_OK)), None)
     if exe:
-        subprocess.Popen([exe, 'serve'], stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, start_new_session=True)
+        C.detached_popen([exe, 'serve'])
 
 # --- Main ---
 def main():
@@ -457,7 +463,9 @@ def main():
     except Exception:
         pass  # splash is cosmetic — don't let it block tray startup
 
+    global _icon
     icon = pystray.Icon("Coda", create_icon(), "Coda", menu=build_menu())
+    _icon = icon
 
     def _on_term(signum, frame):
         _cleanup_runtime()

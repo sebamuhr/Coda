@@ -2,7 +2,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import os
-import signal
 import time
 import subprocess
 import threading
@@ -278,7 +277,8 @@ class PreferencesApp:
             self.root.after(0, lambda: self._update_btn.config(state='normal'))
         try:
             r = subprocess.run(self._coda('update', '--no-restart'),
-                               capture_output=True, text=True, timeout=180)
+                               capture_output=True, text=True, timeout=180,
+                               env=dict(os.environ, CODA_CALLER_PID=str(os.getpid())))
         except Exception as e:
             return _ui(f'Error: {str(e)[:100]}', 'red')
         out = (r.stdout + r.stderr).strip()
@@ -303,9 +303,7 @@ class PreferencesApp:
             return
         # The uninstaller stops every Coda process — including this window —
         # so it runs detached and reports back with a desktop notification.
-        subprocess.Popen(self._coda('uninstall', '--yes'), start_new_session=True,
-                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL)
+        C.detached_popen(self._coda('uninstall', '--yes'))
         self.root.destroy()
 
     # ── Load values ───────────────────────────────────
@@ -350,17 +348,23 @@ class PreferencesApp:
     def _restart_coda(self):
         # Stop the running tray, wait until it has really gone (so its lock is
         # released), then start a fresh one. Never two trays at once.
-        try:
-            with open(C.LOCK_FILE) as f:
-                old_pid = int(f.read().strip())
-            os.kill(old_pid, signal.SIGTERM)
+        old_pid = C.read_tray_pid()
+        if old_pid is None and not C.WINDOWS:
+            try:   # trays from before 2.0.1 kept their PID in the lock file
+                with open(C.LOCK_FILE) as f:
+                    old_pid = int(f.read().strip())
+            except (OSError, ValueError):
+                pass
+        if old_pid:
+            C.terminate(old_pid, tree=False)
             for _ in range(50):
-                os.kill(old_pid, 0)
+                if not C.pid_alive(old_pid):
+                    break
                 time.sleep(0.1)
-        except (OSError, ValueError):
-            pass
-        subprocess.Popen([sys.executable, os.path.join(C.CODE_DIR, 'coda-tray.py')],
-                         start_new_session=True)
+            else:
+                C.terminate(old_pid, tree=False, force=True)
+                time.sleep(0.5)
+        C.detached_popen([C.python_bin(gui=True), os.path.join(C.CODE_DIR, 'coda-tray.py')])
         self.root.destroy()
 
 

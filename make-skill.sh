@@ -9,7 +9,7 @@ STAGE=$(mktemp -d); trap 'rm -rf "$STAGE"' EXIT
 
 mkdir -p "$STAGE/app" dist
 cp skill/SKILL.md "$STAGE/"
-cp install.sh uninstall.sh coda.py coda_common.py \
+cp install.sh uninstall.sh install.ps1 uninstall.ps1 coda.py coda_common.py coda_windows.py \
    coda-tray.py coda-preferences.py coda_extension.py \
    LICENSE README.md TERMS.md PRIVACY.md "$STAGE/app/"
 chmod +x "$STAGE/app/install.sh" "$STAGE/app/uninstall.sh" "$STAGE/app/coda.py"
