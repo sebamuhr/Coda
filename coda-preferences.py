@@ -22,10 +22,31 @@ PROVIDER_KEY_LABEL = {
 }
 
 PROVIDER_KEY_HELP = {
-    "Gemini": "Get a free key at aistudio.google.com",
-    "OpenAI": "Get a key at platform.openai.com",
-    "Claude": "Get a key at console.anthropic.com",
+    "Gemini": ("Get a free key at aistudio.google.com", "https://aistudio.google.com/apikey"),
+    "OpenAI": ("Get a key at platform.openai.com",      "https://platform.openai.com/api-keys"),
+    "Claude": ("Get a key at console.anthropic.com",    "https://console.anthropic.com/settings/keys"),
 }
+
+# Where each mail provider makes app passwords (the normal password won't work).
+APP_PASSWORD_HELP = {
+    "Gmail":   ("⚠ Not your Gmail password. Turn on 2-Step Verification, then create an app password:",
+                "https://myaccount.google.com/apppasswords"),
+    "Outlook": ("⚠ Not your Outlook password. Create an app password in your Microsoft account:",
+                "https://account.microsoft.com/security"),
+    "Yahoo":   ("⚠ Not your Yahoo password. Create an app password in Account security:",
+                "https://login.yahoo.com/account/security"),
+}
+
+
+def set_link(label, text, url=None):
+    """Turn a label into a clickable link (or back into plain grey text)."""
+    import webbrowser
+    label.unbind('<Button-1>')
+    if url:
+        label.config(text=text, foreground='#1a62c9', cursor='hand2', font=('', 9, 'underline'))
+        label.bind('<Button-1>', lambda e: webbrowser.open(url))
+    else:
+        label.config(text=text, foreground='gray', cursor='', font=('', 9))
 
 EMAIL_PROVIDERS = ["Gmail", "Outlook", "Yahoo", "Other"]
 EMAIL_IMAP = {
@@ -227,14 +248,14 @@ class PreferencesApp:
             self.ent_ip.grid()
             self.lbl_key.grid_remove()
             self.ent_key.grid_remove()
-            self.lbl_key_help.config(text="")
+            set_link(self.lbl_key_help, "")
         else:
             self.lbl_ip.grid_remove()
             self.ent_ip.grid_remove()
             self.lbl_key.config(text=key_label + ":")
             self.lbl_key.grid()
             self.ent_key.grid()
-            self.lbl_key_help.config(text=key_help)
+            set_link(self.lbl_key_help, *(key_help or ("",)))
 
     # ── Email tab ─────────────────────────────────────
     def _build_email_tab(self):
@@ -261,10 +282,12 @@ class PreferencesApp:
         self.var_app_pw = tk.StringVar()
         ttk.Entry(f, textvariable=self.var_app_pw, show='*', width=30).grid(row=4, column=1, sticky='ew', pady=4)
 
-        ttk.Label(f, text="⚠ Not your Gmail password — create one at:\n"
-                          "myaccount.google.com → Security → 2-Step Verification → App Passwords",
-                  foreground='gray', font=('', 8)).grid(
-                      row=5, column=0, columnspan=2, sticky='w', pady=(0, 6))
+        pw_help = ttk.Frame(f)
+        pw_help.grid(row=5, column=0, columnspan=2, sticky='w', pady=(0, 6))
+        self.lbl_pw_help = ttk.Label(pw_help, text="", foreground='gray', font=('', 8))
+        self.lbl_pw_help.pack(anchor='w')
+        self.lbl_pw_link = ttk.Label(pw_help, text="")
+        self.lbl_pw_link.pack(anchor='w')
 
         ttk.Label(f, text="IMAP Server:").grid(row=6, column=0, sticky='w', pady=4)
         self.var_imap = tk.StringVar()
@@ -329,8 +352,12 @@ class PreferencesApp:
         ttk.Label(cb, text="API Key:").grid(row=2, column=0, sticky='w', pady=4)
         self.var_email_ai_key = tk.StringVar()
         ttk.Entry(cb, textvariable=self.var_email_ai_key, show='*', width=30).grid(row=2, column=1, sticky='ew', pady=4)
-        self.lbl_email_ai_keyhelp = ttk.Label(cb, text="", foreground='gray', font=('', 8))
-        self.lbl_email_ai_keyhelp.grid(row=3, column=0, columnspan=2, sticky='w')
+        kh = ttk.Frame(cb)
+        kh.grid(row=3, column=0, columnspan=2, sticky='w')
+        self.lbl_email_ai_keyhelp = ttk.Label(kh, text="")
+        self.lbl_email_ai_keyhelp.pack(side='left')
+        self.lbl_email_ai_reuse = ttk.Label(kh, text="", foreground='gray', font=('', 8))
+        self.lbl_email_ai_reuse.pack(side='left')
         self.lbl_cloud_warning = tk.Label(cb, text="", fg='#b00020', font=('', 9, 'bold'),
                                           wraplength=470, justify='left', anchor='w')
         self.lbl_cloud_warning.grid(row=4, column=0, columnspan=2, sticky='ew', pady=(6, 0))
@@ -414,17 +441,29 @@ class PreferencesApp:
         self.cb_email_ai_model['values'] = models
         if self.var_email_ai_model.get() not in models:
             self.var_email_ai_model.set(models[0])
-        help_url = {'claude': 'console.anthropic.com', 'gemini': 'aistudio.google.com',
-                    'openai': 'platform.openai.com'}[ai]
-        same = self.var_provider.get() == C.EMAIL_AI_CODING_PROVIDER[ai]
-        self.lbl_email_ai_keyhelp.config(
-            text=f"Get a key at {help_url}" + ("  ·  leave empty to reuse the key from the Call Coda tab" if same else ""))
+        provider = C.EMAIL_AI_CODING_PROVIDER[ai]
+        set_link(self.lbl_email_ai_keyhelp, *PROVIDER_KEY_HELP[provider])
+        same = self.var_provider.get() == provider
+        self.lbl_email_ai_reuse.config(
+            text="  ·  leave empty to reuse the key from the Call Coda tab" if same else "")
         self.lbl_cloud_warning.config(text="⚠  " + C.email_cloud_warning(ai).split("\n\n")[0])
 
     def _on_email_provider_change(self, event=None):
         imap, smtp = EMAIL_IMAP.get(self.var_email_prov.get(), ("", ""))
         self.var_imap.set(imap)
         self.var_smtp.set(smtp)
+        self._show_pw_help()
+
+    def _show_pw_help(self):
+        text, url = APP_PASSWORD_HELP.get(
+            self.var_email_prov.get(),
+            ("⚠ Most providers need an app password here, not your normal password.", None))
+        self.lbl_pw_help.config(text=text)
+        if url:
+            set_link(self.lbl_pw_link, url.split('://', 1)[1], url)
+            self.lbl_pw_link.pack(anchor='w')
+        else:
+            self.lbl_pw_link.pack_forget()
 
     def _email_host(self):
         return C.normalize_host(self.var_email_ollama_ip.get())
@@ -572,6 +611,7 @@ class PreferencesApp:
         self.var_model.set(c.get('model', ''))
 
         self.var_email_prov.set(c.get('email_provider', 'Gmail'))
+        self._show_pw_help()
         self.var_email.set(c.get('email', ''))
         self.var_app_pw.set(c.get('app_password', ''))
         self.var_imap.set(c.get('imap_server', 'imap.gmail.com'))
