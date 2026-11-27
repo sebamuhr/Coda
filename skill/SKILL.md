@@ -114,6 +114,8 @@ EOF
 - Never print, log or ask for the app password. It is stored in `~/.config/coda/config.json`, which only the user can read; don't open that file.
 - Coda's own Email Agent window writes with a local model (`coda2.0:3b` via Ollama) by default. The user can switch it to Claude, Gemini or OpenAI in Preferences → Email; leave that choice to them. Run `coda email-model` only if the user asks for it: it downloads about 2 GB.
 
+- Coda's [Terms of Use](app/TERMS.md) and [Privacy Policy](app/PRIVACY.md) are in `app/`. If the user asks about them, point them there. In short: Coda collects no data, and the user is responsible for what is sent in their name.
+
 ## Other commands
 
 | Command | What it does |

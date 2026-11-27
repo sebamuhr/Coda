@@ -11,7 +11,7 @@ mkdir -p "$STAGE/app" dist
 cp skill/SKILL.md "$STAGE/"
 cp install.sh uninstall.sh coda.py coda_common.py coda_mail.py \
    coda-tray.py coda-email.py coda-preferences.py coda_extension.py \
-   LICENSE README.md "$STAGE/app/"
+   LICENSE README.md TERMS.md PRIVACY.md "$STAGE/app/"
 chmod +x "$STAGE/app/install.sh" "$STAGE/app/uninstall.sh" "$STAGE/app/coda.py"
 
 # Frontmatter sanity check: name + description are required.

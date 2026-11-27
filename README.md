@@ -288,9 +288,11 @@ Pull requests welcome! Ideas for improvement:
 
 ---
 
-## License
+## License, terms and privacy
 
-MIT — do whatever you want with it.
+The code is MIT-licensed (see [LICENSE](LICENSE)).
+
+Using Coda means you accept the [Terms of Use](TERMS.md). In short: Coda is a tool, you are responsible for how you use it and for what your AI agents and emails do, and it comes with no warranty. Coda collects no data at all; see the [Privacy Policy](PRIVACY.md).
 
 ---
 
