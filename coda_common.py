@@ -123,6 +123,7 @@ DEFAULT_CONFIG = {
     'user_name':        '',
     'theme':            'light',
     'email_ollama_ip':  'localhost',
+    'email_enabled':    True,
     'email_ai':         'local',
     'email_ai_model':   '',
     'email_ai_key':     '',

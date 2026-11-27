@@ -224,98 +224,122 @@ class PreferencesApp:
     def _build_email_tab(self):
         f = self.tab_email
 
-        ttk.Label(f, text="Email Account", font=('', 11, 'bold')).grid(row=0, column=0, columnspan=2, sticky='w', pady=(0,10))
+        self.var_email_on = tk.BooleanVar(value=True)
+        self._email_on_cb = ttk.Checkbutton(
+            f, text="Use the Email Agent  (off: hidden from the tray menu)",
+            variable=self.var_email_on, command=self._on_email_toggle)
+        self._email_on_cb.grid(row=0, column=0, columnspan=2, sticky='w', pady=(0, 10))
+        ttk.Label(f, text="Email Account", font=('', 11, 'bold')).grid(row=1, column=0, columnspan=2, sticky='w', pady=(0,10))
 
-        ttk.Label(f, text="Email Provider:").grid(row=1, column=0, sticky='w', pady=4)
+        ttk.Label(f, text="Email Provider:").grid(row=2, column=0, sticky='w', pady=4)
         self.var_email_prov = tk.StringVar()
         self.cb_email_prov = ttk.Combobox(f, textvariable=self.var_email_prov, values=EMAIL_PROVIDERS, state='readonly', width=28)
-        self.cb_email_prov.grid(row=1, column=1, sticky='ew', pady=4)
+        self.cb_email_prov.grid(row=2, column=1, sticky='ew', pady=4)
         self.cb_email_prov.bind('<<ComboboxSelected>>', self._on_email_provider_change)
 
-        ttk.Label(f, text="Email Address:").grid(row=2, column=0, sticky='w', pady=4)
+        ttk.Label(f, text="Email Address:").grid(row=3, column=0, sticky='w', pady=4)
         self.var_email = tk.StringVar()
-        ttk.Entry(f, textvariable=self.var_email, width=30).grid(row=2, column=1, sticky='ew', pady=4)
+        ttk.Entry(f, textvariable=self.var_email, width=30).grid(row=3, column=1, sticky='ew', pady=4)
 
-        ttk.Label(f, text="App Password:").grid(row=3, column=0, sticky='w', pady=4)
+        ttk.Label(f, text="App Password:").grid(row=4, column=0, sticky='w', pady=4)
         self.var_app_pw = tk.StringVar()
-        ttk.Entry(f, textvariable=self.var_app_pw, show='*', width=30).grid(row=3, column=1, sticky='ew', pady=4)
+        ttk.Entry(f, textvariable=self.var_app_pw, show='*', width=30).grid(row=4, column=1, sticky='ew', pady=4)
 
         ttk.Label(f, text="⚠ Not your Gmail password — create one at:\n"
                           "myaccount.google.com → Security → 2-Step Verification → App Passwords",
                   foreground='gray', font=('', 8)).grid(
-                      row=4, column=0, columnspan=2, sticky='w', pady=(0, 6))
+                      row=5, column=0, columnspan=2, sticky='w', pady=(0, 6))
 
-        ttk.Label(f, text="IMAP Server:").grid(row=5, column=0, sticky='w', pady=4)
+        ttk.Label(f, text="IMAP Server:").grid(row=6, column=0, sticky='w', pady=4)
         self.var_imap = tk.StringVar()
-        ttk.Entry(f, textvariable=self.var_imap, width=30).grid(row=5, column=1, sticky='ew', pady=4)
+        ttk.Entry(f, textvariable=self.var_imap, width=30).grid(row=6, column=1, sticky='ew', pady=4)
 
-        ttk.Label(f, text="SMTP Server:").grid(row=6, column=0, sticky='w', pady=4)
+        ttk.Label(f, text="SMTP Server:").grid(row=7, column=0, sticky='w', pady=4)
         self.var_smtp = tk.StringVar()
-        ttk.Entry(f, textvariable=self.var_smtp, width=30).grid(row=6, column=1, sticky='ew', pady=4)
+        ttk.Entry(f, textvariable=self.var_smtp, width=30).grid(row=7, column=1, sticky='ew', pady=4)
 
-        ttk.Label(f, text="Emails to sync:").grid(row=7, column=0, sticky='w', pady=4)
+        ttk.Label(f, text="Emails to sync:").grid(row=8, column=0, sticky='w', pady=4)
         self.var_sync_count = tk.StringVar()
-        ttk.Entry(f, textvariable=self.var_sync_count, width=8).grid(row=7, column=1, sticky='w', pady=4)
+        ttk.Entry(f, textvariable=self.var_sync_count, width=8).grid(row=8, column=1, sticky='w', pady=4)
 
-        ttk.Label(f, text="Auto-refresh (minutes):").grid(row=8, column=0, sticky='w', pady=4)
+        ttk.Label(f, text="Auto-refresh (minutes):").grid(row=9, column=0, sticky='w', pady=4)
         self.var_refresh = tk.StringVar()
-        ttk.Entry(f, textvariable=self.var_refresh, width=8).grid(row=8, column=1, sticky='w', pady=4)
+        ttk.Entry(f, textvariable=self.var_refresh, width=8).grid(row=9, column=1, sticky='w', pady=4)
 
-        ttk.Separator(f).grid(row=9, column=0, columnspan=2, sticky='ew', pady=10)
+        ttk.Separator(f).grid(row=10, column=0, columnspan=2, sticky='ew', pady=10)
 
-        ttk.Label(f, text="Email AI", font=('', 11, 'bold')).grid(row=10, column=0, columnspan=2, sticky='w', pady=(0,6))
-        ttk.Label(f, text="Writes with:").grid(row=11, column=0, sticky='w', pady=4)
+        ttk.Label(f, text="Email AI", font=('', 11, 'bold')).grid(row=11, column=0, columnspan=2, sticky='w', pady=(0,6))
+        ttk.Label(f, text="Writes with:").grid(row=12, column=0, sticky='w', pady=4)
         self.var_email_ai = tk.StringVar()
         self._email_ai_labels = {v['label']: k for k, v in C.EMAIL_AI.items()}
         self.cb_email_ai = ttk.Combobox(f, textvariable=self.var_email_ai, state='readonly', width=28,
                                         values=list(self._email_ai_labels))
-        self.cb_email_ai.grid(row=11, column=1, sticky='ew', pady=4)
+        self.cb_email_ai.grid(row=12, column=1, sticky='ew', pady=4)
         self.cb_email_ai.bind('<<ComboboxSelected>>', self._on_email_ai_selected)
         self._email_ai_current = 'local'
 
         # Local model (default)
         self.local_box = ttk.Frame(f)
-        self.local_box.grid(row=12, column=0, columnspan=2, sticky='ew')
+        self.local_box.grid(row=13, column=0, columnspan=2, sticky='ew')
         lb = self.local_box
-        ttk.Label(lb, text="Ollama IP:").grid(row=0, column=0, sticky='w', pady=4)
+        ttk.Label(lb, text="Ollama IP:").grid(row=1, column=0, sticky='w', pady=4)
         self.var_email_ollama_ip = tk.StringVar()
         email_ip_row = ttk.Frame(lb)
-        email_ip_row.grid(row=0, column=1, sticky='ew', pady=4)
+        email_ip_row.grid(row=1, column=1, sticky='ew', pady=4)
         ttk.Entry(email_ip_row, textvariable=self.var_email_ollama_ip, width=22).pack(side='left')
         ttk.Button(email_ip_row, text='↺ Check', width=8,
                    command=self._check_model_status).pack(side='left', padx=(6, 0))
-        ttk.Label(lb, text="Status:").grid(row=1, column=0, sticky='w', pady=4)
+        ttk.Label(lb, text="Status:").grid(row=2, column=0, sticky='w', pady=4)
         self._model_status_lbl = ttk.Label(lb, text="Checking...", foreground='gray')
-        self._model_status_lbl.grid(row=1, column=1, sticky='w', pady=4)
+        self._model_status_lbl.grid(row=2, column=1, sticky='w', pady=4)
         self._pull_btn = ttk.Button(lb, text='⬇  Pull Model', command=self._pull_model, width=16)
-        self._pull_btn.grid(row=2, column=1, sticky='w', pady=(0, 4))
+        self._pull_btn.grid(row=3, column=1, sticky='w', pady=(0, 4))
         self._pull_btn.grid_remove()
         self._pull_progress = ttk.Label(lb, text='', foreground='gray', font=('', 8))
-        self._pull_progress.grid(row=3, column=0, columnspan=2, sticky='w')
+        self._pull_progress.grid(row=4, column=0, columnspan=2, sticky='w')
         self._pull_progress.grid_remove()
         ttk.Label(lb, text="Private: your emails never leave your computer or your own server.",
-                  foreground='gray', font=('', 8)).grid(row=4, column=0, columnspan=2, sticky='w')
+                  foreground='gray', font=('', 8)).grid(row=5, column=0, columnspan=2, sticky='w')
         lb.columnconfigure(1, weight=1)
 
         # Cloud model (opt-in)
         self.cloud_box = ttk.Frame(f)
-        self.cloud_box.grid(row=13, column=0, columnspan=2, sticky='ew')
+        self.cloud_box.grid(row=14, column=0, columnspan=2, sticky='ew')
         cb = self.cloud_box
-        ttk.Label(cb, text="Model:").grid(row=0, column=0, sticky='w', pady=4)
+        ttk.Label(cb, text="Model:").grid(row=1, column=0, sticky='w', pady=4)
         self.var_email_ai_model = tk.StringVar()
         self.cb_email_ai_model = ttk.Combobox(cb, textvariable=self.var_email_ai_model, width=28)
-        self.cb_email_ai_model.grid(row=0, column=1, sticky='ew', pady=4)
-        ttk.Label(cb, text="API Key:").grid(row=1, column=0, sticky='w', pady=4)
+        self.cb_email_ai_model.grid(row=1, column=1, sticky='ew', pady=4)
+        ttk.Label(cb, text="API Key:").grid(row=2, column=0, sticky='w', pady=4)
         self.var_email_ai_key = tk.StringVar()
-        ttk.Entry(cb, textvariable=self.var_email_ai_key, show='*', width=30).grid(row=1, column=1, sticky='ew', pady=4)
+        ttk.Entry(cb, textvariable=self.var_email_ai_key, show='*', width=30).grid(row=2, column=1, sticky='ew', pady=4)
         self.lbl_email_ai_keyhelp = ttk.Label(cb, text="", foreground='gray', font=('', 8))
-        self.lbl_email_ai_keyhelp.grid(row=2, column=0, columnspan=2, sticky='w')
+        self.lbl_email_ai_keyhelp.grid(row=3, column=0, columnspan=2, sticky='w')
         self.lbl_cloud_warning = tk.Label(cb, text="", fg='#b00020', font=('', 9, 'bold'),
                                           wraplength=470, justify='left', anchor='w')
-        self.lbl_cloud_warning.grid(row=3, column=0, columnspan=2, sticky='ew', pady=(6, 0))
+        self.lbl_cloud_warning.grid(row=4, column=0, columnspan=2, sticky='ew', pady=(6, 0))
         cb.columnconfigure(1, weight=1)
 
         f.columnconfigure(1, weight=1)
+
+    def _on_email_toggle(self):
+        on = self.var_email_on.get()
+        def walk(w):
+            for c in w.winfo_children():
+                if c is self._email_on_cb:
+                    continue
+                if isinstance(c, ttk.Widget) and hasattr(c, 'state'):
+                    try:
+                        c.state(['!disabled'] if on else ['disabled'])
+                    except tk.TclError:
+                        pass
+                elif not isinstance(c, (tk.Frame, ttk.Frame)):
+                    try:
+                        c.configure(state='normal' if on else 'disabled')
+                    except tk.TclError:
+                        pass
+                walk(c)
+        walk(self.tab_email)
 
     def _email_ai_key(self):
         return self._email_ai_labels.get(self.var_email_ai.get(), 'local')
@@ -518,6 +542,8 @@ class PreferencesApp:
         self.var_email_ai_model.set(c.get('email_ai_model', ''))
         self.var_email_ai_key.set(c.get('email_ai_key', ''))
         self._show_email_ai(ai)
+        self.var_email_on.set(bool(c.get('email_enabled', True)))
+        self._on_email_toggle()
         self.root.after(400, self._check_model_status)
 
     # ── Save ──────────────────────────────────────────
@@ -553,12 +579,13 @@ class PreferencesApp:
             "email_sync_count":  sync_count,
             "theme":             self.var_theme.get().lower(),
             "email_ollama_ip":   self.var_email_ollama_ip.get().strip() or 'localhost',
+            "email_enabled":     bool(self.var_email_on.get()),
             "email_ai":          self._email_ai_key(),
             "email_ai_model":    self.var_email_ai_model.get().strip(),
             "email_ai_key":      self.var_email_ai_key.get().strip(),
         })
 
-        for stale in ('alias', 'learning_mode', 'email_ai_provider', 'email_ai_key', 'custom_url'):
+        for stale in ('alias', 'learning_mode', 'email_ai_provider', 'custom_url'):
             self.cfg.pop(stale, None)
         save_config(self.cfg)
 

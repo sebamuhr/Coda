@@ -110,6 +110,8 @@ Closing the email window with X does **not** quit it — click **C → Email Age
 
 **Want stronger writing?** In **Preferences → Email → Writes with** you can choose **Claude**, **Gemini** or **OpenAI** with your own API key. Coda warns you first, because the email thread you reply to, your instructions and your contact notes are then sent to that company. Your mail password never is. While a cloud model is active, the Email Agent's title bar says so.
 
+**Don't need email?** Untick **Use the Email Agent** in **Preferences → Email**. The Email Agent then disappears from the tray menu, and the menu only shows Launch Coda and the coding agent settings.
+
 ![Email Agent](assistant1.png)
 ![Email Agent writing a reply](assistant2.png)
 

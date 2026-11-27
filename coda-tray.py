@@ -393,9 +393,10 @@ def build_menu():
         _provider_item('🟢  OpenAI', 'OpenAI'),
         _provider_item('🟠  Claude', 'Claude'),
     )
-    entries = [
-        item('Launch Coda',  launch_coda),
-        item('Email Agent',  launch_email),
+    entries = [item('Launch Coda', launch_coda)]
+    if cfg.get('email_enabled', True):
+        entries.append(item('Email Agent', launch_email))
+    entries += [
         Menu.SEPARATOR,
         item(f'Agent: {C.session_label(cfg)}', None, enabled=False),
         item('Coding Agent', engine_menu),

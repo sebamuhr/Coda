@@ -317,6 +317,12 @@ def cmd_mail_check(_args):
     say(f'✓ Logged in to {st["IMAP_SERVER"]} as {st["EMAIL"]}  (sent: {sent}, drafts: {drafts})')
 
 
+def cmd_email_window(args):
+    if not C.load_config().get('email_enabled', True):
+        sys.exit('coda: the Email Agent is turned off — turn it on in Preferences → Email')
+    spawn_gui('coda-email.py')
+
+
 # ── coda email-model ──────────────────────────────────────────────────
 def cmd_email_model(args):
     cfg = C.load_config()
@@ -634,6 +640,7 @@ def main():
     for name, script in (('tray', 'coda-tray.py'), ('email', 'coda-email.py'),
                          ('prefs', 'coda-preferences.py')):
         sub.add_parser(name, help=f'start {script}').set_defaults(fn=lambda a, s=script: spawn_gui(s))
+    sub.choices['email'].set_defaults(fn=cmd_email_window)
     p = sub.add_parser('email-model', help=f'install {C.EMAIL_MODEL} on Ollama')
     p.add_argument('--host')
     p.add_argument('--force', action='store_true')
