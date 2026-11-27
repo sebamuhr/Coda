@@ -100,11 +100,25 @@ class PreferencesApp:
         apply_theme(root, self.cfg.get('theme', 'light'))
         self._build_ui()
         self._load_values()
+        self.root.after(50, self._fit_window)
+
+    def _fit_window(self):
+        """Grow the window so every tab's content is fully visible (never shrink
+        it below what the user chose, never taller than the screen)."""
+        self.root.update_idletasks()
+        need_w = self.root.winfo_reqwidth()
+        need_h = self.root.winfo_reqheight()
+        max_h = self.root.winfo_screenheight() - 80
+        w = max(self.root.winfo_width(), need_w, 560)
+        h = min(max(self.root.winfo_height(), need_h), max_h)
+        if (w, h) != (self.root.winfo_width(), self.root.winfo_height()):
+            self.root.geometry(f"{w}x{h}")
+        self.root.minsize(min(need_w, w), min(need_h, max_h))
 
     def _build_ui(self):
         # Pack button bar first so it's always anchored to the bottom
         btn_frame = tk.Frame(self.root)
-        btn_frame.pack(side='bottom', fill='x', padx=10, pady=(0, 10))
+        btn_frame.pack(side='bottom', fill='x', padx=10, pady=(10, 10))
         ttk.Button(btn_frame, text='Save', command=self._save, width=14).pack(side='right')
         ttk.Button(btn_frame, text='Cancel', command=self.root.destroy, width=10).pack(side='right', padx=6)
 
@@ -369,6 +383,7 @@ class PreferencesApp:
         self._show_email_ai(ai)
 
     def _show_email_ai(self, ai):
+        self.root.after_idle(self._fit_window)
         if ai == 'local':
             self.cloud_box.grid_remove()
             self.agent_box.grid_remove()
