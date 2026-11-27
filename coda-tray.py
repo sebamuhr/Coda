@@ -2,137 +2,63 @@
 import subprocess
 import os
 import sys
-import json
-import glob
+import fcntl
+import atexit
+import shutil
 import time
 import signal
 import threading
-import tempfile
-import platform
 import pystray
 from pystray import MenuItem as item, Menu
 import colorsys
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
-PLATFORM = platform.system()  # 'Linux' or 'Darwin'
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import coda_common as C
 
-# --- Paths ---
-CODA_DIR     = os.path.dirname(os.path.abspath(__file__))
-CONFIG_FILE  = os.path.expanduser('~/.config/coda/config.json')
-LOCK_FILE    = '/tmp/coda-tray.lock'
-RUNNING_FILE = '/tmp/coda-running'
-MARKER_DIR   = '/tmp/coda_terminals'   # one file per open coding terminal
+PLATFORM     = C.PLATFORM
+LOCK_FILE    = C.LOCK_FILE
+RUNNING_FILE = C.RUNNING_FILE   # tells the right-click extension the tray is up
 
 # --- Single instance (tray) ---
+# Held open for the whole process lifetime so the kernel keeps the flock.
+# flock is atomic (two simultaneous launches can't both win) and is released
+# automatically when the holder dies, so stale locks need no cleanup.
+_lock_fp = None
+
 def is_already_running():
-    if os.path.exists(LOCK_FILE):
-        try:
-            with open(LOCK_FILE) as f:
-                pid = int(f.read().strip())
-            os.kill(pid, 0)  # raises OSError if dead
-            # Verify the PID belongs to coda-tray, not a recycled process
-            r = subprocess.run(['ps', '-p', str(pid), '-o', 'args='],
-                               capture_output=True, text=True)
-            if 'coda-tray' in r.stdout:
-                return True
-        except (OSError, ValueError):
-            pass
-        # Stale lock — remove it
-        try: os.remove(LOCK_FILE)
-        except Exception: pass
+    global _lock_fp
+    C.ensure_private_dir(C.RUNTIME_DIR)
+    _lock_fp = open(LOCK_FILE, 'a+')
+    try:
+        fcntl.flock(_lock_fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return True  # another instance holds the lock
     return False
 
 def write_lock():
-    os.makedirs(MARKER_DIR, exist_ok=True)
-    # Do NOT clear existing markers — each terminal manages its own via
-    # bash trap on exit.  /tmp is tmpfs so stale markers vanish on reboot.
+    os.makedirs(C.MARKER_DIR, exist_ok=True)
     open(RUNNING_FILE, 'w').close()
-    with open(LOCK_FILE, 'w') as f:
-        f.write(str(os.getpid()))
+    _lock_fp.seek(0)
+    _lock_fp.truncate()
+    _lock_fp.write(str(os.getpid()))
+    _lock_fp.flush()
 
-# --- Config ---
-def load_config():
-    defaults = {
-        "provider": "Ollama (local)",
-        "ollama_ip": "",
-        "model": "",
-        "api_key": "",
-        "custom_url": "",
-        "alias": "coda",
-    }
+def _cleanup_runtime():
     try:
-        with open(CONFIG_FILE) as f:
-            defaults.update(json.load(f))
-    except Exception:
+        os.remove(RUNNING_FILE)
+    except OSError:
         pass
-    return defaults
 
-def save_config(cfg):
-    os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
-    with open(CONFIG_FILE, 'w') as f:
-        json.dump(cfg, f, indent=2)
+load_config = C.load_config
+save_config = C.save_config
 
 def get_active_provider():
     return load_config().get("provider", "Ollama (local)")
 
-# --- Terminal counter ---
+# --- Session counter (marker files written by `coda code`) ---
 def get_terminal_count():
-    if PLATFORM == 'Darwin':
-        try:
-            return len(glob.glob(os.path.join(MARKER_DIR, 'term_*')))
-        except Exception:
-            return 0
-    try:
-        r = subprocess.run(['wmctrl', '-l'], capture_output=True, text=True)
-        return sum(1 for line in r.stdout.splitlines()
-                   if len(line.split(None, 3)) >= 4 and
-                   (line.split(None, 3)[3].startswith('Coda ·') or
-                    line.split(None, 3)[3].startswith('Coda 🤖')))
-    except Exception:
-        return 0
-
-def new_marker():
-    os.makedirs(MARKER_DIR, exist_ok=True)
-    path = os.path.join(MARKER_DIR, f'term_{os.getpid()}_{int(time.time())}')
-    return path
-
-# --- Aider command builder ---
-def _normalize_ollama_ip(raw):
-    """Accept an IP, hostname, or full URL — always return just the host."""
-    ip = (raw or "").strip()
-    ip = ip.replace("https://", "").replace("http://", "")
-    ip = ip.split(":")[0].strip("/")
-    return ip or "localhost"
-
-def build_aider_cmd(folder, cfg, marker):
-    provider  = cfg.get("provider", "Ollama (local)")
-    model     = cfg.get("model", "")
-    api_key   = cfg.get("api_key", "")
-    ollama_ip = _normalize_ollama_ip(cfg.get("ollama_ip", ""))
-    activate  = "source ~/aider-env/bin/activate"
-
-    if provider == "Ollama (local)":
-        base_url = f"http://{ollama_ip}:11434"
-        run = f"OLLAMA_API_BASE={base_url} aider --model ollama_chat/{model}"
-    elif provider == "Gemini":
-        run = f"GEMINI_API_KEY={api_key} aider --model gemini/{model or 'gemini-1.5-pro'}"
-    elif provider == "OpenAI":
-        run = f"OPENAI_API_KEY={api_key} aider --model {model or 'gpt-4o'}"
-    elif provider == "Claude":
-        run = f"ANTHROPIC_API_KEY={api_key} aider --model {model or 'claude-opus-4-5'}"
-    else:
-        base_url = f"http://{ollama_ip}:11434"
-        run = f"OLLAMA_API_BASE={base_url} aider --model ollama_chat/{model}"
-
-    # touch marker on start, remove on any exit (close window, Ctrl-C, etc.)
-    # trailing 'bash' (not exec bash) keeps terminal open after aider exits
-    # and ensures the outer shell runs the EXIT trap when window is closed
-    return (
-        f"mkdir -p {MARKER_DIR} && "
-        f"touch '{marker}' && "
-        f"trap 'rm -f \"{marker}\"' EXIT HUP INT TERM && "
-        f"cd '{folder}' && {activate} && {run} ; bash"
-    )
+    return len(C.live_sessions())
 
 # --- Icon helpers ---
 def _draw_C_arc(draw, size, color='black'):
@@ -179,14 +105,6 @@ def create_icon(count=0):
     draw.ellipse([1, 1, 63, 63], outline='black', width=2)
     _draw_C_arc(draw, SIZE)
     return img
-
-def generate_desktop_icon():
-    if PLATFORM == 'Darwin':
-        return
-    SIZE = 256
-    img  = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
-    _draw_C(ImageDraw.Draw(img), SIZE, border=8)
-    img.save(os.path.expanduser('~/.local/share/icons/coda.png'))
 
 # --- Notification ---
 def show_notification(title, message):
@@ -254,65 +172,6 @@ def show_splash():
     PAD      = PIXEL * 2
     canvas_w = len(word) * LETTER_W * PIXEL + (len(word) - 1) * GAP + PAD * 2
     canvas_h = LETTER_H * PIXEL + PAD * 2
-
-    if PLATFORM == 'Darwin':
-        try:
-            import tkinter as tk
-        except Exception:
-            return
-
-        root = tk.Tk()
-        root.overrideredirect(True)
-        root.attributes('-topmost', True)
-        root.attributes('-alpha', 0.0)
-        root.configure(bg='black')
-        root.update_idletasks()
-        sw = root.winfo_screenwidth()
-        sh = root.winfo_screenheight()
-        root.geometry(f'{canvas_w}x{canvas_h}+{(sw - canvas_w)//2}+{(sh - canvas_h)//2}')
-
-        cv = tk.Canvas(root, width=canvas_w, height=canvas_h,
-                       bg='black', highlightthickness=0)
-        cv.pack()
-
-        x_off = PAD
-        for letter in word:
-            for row_i, row in enumerate(_SPLASH_LETTERS.get(letter, [])):
-                for col_i, ch in enumerate(row):
-                    if ch == '#':
-                        px = x_off + col_i * PIXEL
-                        py = PAD   + row_i * PIXEL
-                        pw = PIXEL - 2
-                        cv.create_rectangle(px, py, px + pw, py + pw,
-                                            fill='white', outline='')
-            x_off += LETTER_W * PIXEL + GAP
-
-        alpha   = [0.0]
-        phase   = ['fadein']
-        elapsed = [0]
-        INTERVAL, FADE_MS, HOLD_MS = 33, 500, 2500
-
-        def tick():
-            elapsed[0] += INTERVAL
-            if phase[0] == 'fadein':
-                alpha[0] = min(1.0, elapsed[0] / FADE_MS)
-                if elapsed[0] >= FADE_MS:
-                    phase[0] = 'hold'; elapsed[0] = 0
-            elif phase[0] == 'hold':
-                alpha[0] = 1.0
-                if elapsed[0] >= HOLD_MS:
-                    phase[0] = 'fadeout'; elapsed[0] = 0
-            elif phase[0] == 'fadeout':
-                alpha[0] = max(0.0, 1.0 - elapsed[0] / FADE_MS)
-                if elapsed[0] >= FADE_MS:
-                    root.destroy()
-                    return
-            root.attributes('-alpha', alpha[0])
-            root.after(INTERVAL, tick)
-
-        tick()
-        root.mainloop()
-        return
 
     # GTK splash (Linux)
     try:
@@ -436,34 +295,7 @@ def launch_coda(icon=None, query=None):
                 root.destroy()
             if not folder:
                 return
-            cfg      = load_config()
-            marker   = new_marker()
-            cmd      = build_aider_cmd(folder, cfg, marker)
-            provider = cfg.get("provider", "Ollama (local)")
-            if PLATFORM == 'Darwin':
-                fd, script_path = tempfile.mkstemp(suffix='.sh', prefix='coda_launch_')
-                with os.fdopen(fd, 'w') as f:
-                    f.write(
-                        '#!/bin/bash\n'
-                        'source ~/.zshrc 2>/dev/null || source ~/.bashrc 2>/dev/null\n'
-                        f'printf "\\033]0;Coda · {provider}\\007"\n'
-                        f'{cmd}\n'
-                    )
-                os.chmod(script_path, 0o755)
-                subprocess.Popen([
-                    'osascript', '-e',
-                    f'tell application "Terminal" to do script "{script_path}"'
-                ])
-            else:
-                full_cmd = (
-                    'source ~/.bashrc 2>/dev/null; '
-                    f'{cmd}'
-                )
-                subprocess.Popen([
-                    'gnome-terminal',
-                    f'--title=Coda · {provider}',
-                    '--', 'bash', '-c', full_cmd
-                ])
+            C.open_session_window(folder)
             time.sleep(1)
             if icon:
                 icon.icon = create_icon(get_terminal_count())
@@ -484,7 +316,7 @@ def launch_email(icon=None, query=None):
             except Exception:
                 pass
             return
-        script = os.path.join(CODA_DIR, 'coda-email.py')
+        script = os.path.join(C.CODE_DIR, 'coda-email.py')
         _email_proc = subprocess.Popen([sys.executable, script])
     threading.Thread(target=_launch, daemon=True).start()
 
@@ -513,7 +345,7 @@ def launch_preferences(icon=None, query=None):
                 except Exception:
                     pass
             return
-        script = os.path.join(CODA_DIR, 'coda-preferences.py')
+        script = os.path.join(C.CODE_DIR, 'coda-preferences.py')
         _prefs_proc = subprocess.Popen([sys.executable, script])
     threading.Thread(target=_launch, daemon=True).start()
 
@@ -531,139 +363,104 @@ def make_switch_provider_fn(provider_name):
         show_notification("Coda", f"Switched to {provider_name}")
     return _switch
 
+def make_switch_engine_fn(engine):
+    def _switch(icon, query):
+        if not C.find_engine(engine):
+            show_notification("Coda", f"{C.ENGINES[engine]['label']} is not installed — "
+                                      f"see {C.ENGINES[engine]['url']}")
+            return
+        cfg = load_config()
+        cfg["engine"] = engine
+        save_config(cfg)
+        icon.menu = build_menu()
+        show_notification("Coda", f"Call Coda now opens {C.ENGINES[engine]['label']}")
+    return _switch
+
+def _engine_item(key):
+    return item(C.ENGINES[key]['label'], make_switch_engine_fn(key), radio=True,
+                checked=lambda i: load_config().get('engine', 'aider') == key)
+
+def _provider_item(label, name):
+    return item(label, make_switch_provider_fn(name), radio=True,
+                checked=lambda i: get_active_provider() == name)
+
 def build_menu():
-    active = get_active_provider()
-    switch_menu = Menu(
-        item('🏠  Ollama (local)', make_switch_provider_fn('Ollama (local)'),
-             checked=lambda i: get_active_provider() == 'Ollama (local)'),
-        item('🔵  Gemini',        make_switch_provider_fn('Gemini'),
-             checked=lambda i: get_active_provider() == 'Gemini'),
-        item('🟢  OpenAI',        make_switch_provider_fn('OpenAI'),
-             checked=lambda i: get_active_provider() == 'OpenAI'),
-        item('🟠  Claude',        make_switch_provider_fn('Claude'),
-             checked=lambda i: get_active_provider() == 'Claude'),
+    cfg = load_config()
+    engine_menu = Menu(*[_engine_item(k) for k in C.ENGINES])
+    provider_menu = Menu(
+        _provider_item('🏠  Ollama (local)', 'Ollama (local)'),
+        _provider_item('🔵  Gemini', 'Gemini'),
+        _provider_item('🟢  OpenAI', 'OpenAI'),
+        _provider_item('🟠  Claude', 'Claude'),
     )
-    return Menu(
+    entries = [
         item('Launch Coda',  launch_coda),
         item('Email Agent',  launch_email),
         Menu.SEPARATOR,
-        item(f'Model: {active}', None, enabled=False),
-        item('Switch Model', switch_menu),
+        item(f'Agent: {C.session_label(cfg)}', None, enabled=False),
+        item('Coding Agent', engine_menu),
+    ]
+    if cfg.get('engine', 'aider') == 'aider':
+        entries.append(item('Aider Model', provider_menu))
+    entries += [
         Menu.SEPARATOR,
         item('Preferences', launch_preferences),
         Menu.SEPARATOR,
         item('Quit', quit_app),
-    )
+    ]
+    return Menu(*entries)
 
-# --- Restart (macOS) ---
 # --- Quit ---
+def _confirm_close_sessions(n):
+    import tkinter as tk
+    from tkinter import messagebox
+    r = tk.Tk()
+    r.withdraw()
+    s = 's' if n != 1 else ''
+    ok = messagebox.askyesno(
+        "Quit Coda",
+        f"You have {n} Coda session{s} open.\n\nQuit anyway? They will be closed.",
+        parent=r)
+    r.destroy()
+    return ok
+
 def quit_app(icon, query):
-    if PLATFORM == 'Darwin':
-        coda_wins = glob.glob(os.path.join(MARKER_DIR, 'term_*'))
-        if coda_wins:
-            import tkinter as tk
-            from tkinter import messagebox
-            _r = tk.Tk()
-            _r.withdraw()
-            n = len(coda_wins)
-            s = 's' if n != 1 else ''
-            ok = messagebox.askyesno(
-                "Quit Coda",
-                f"You have {n} Coda terminal{s} open.\n\nQuit anyway? All terminals will be closed.",
-                parent=_r)
-            _r.destroy()
-            if not ok:
-                return
-        subprocess.run(['pkill', '-f', 'aider'], capture_output=True)
-    else:
-        coda_wins = []
+    sessions = C.live_sessions()
+    if sessions and not _confirm_close_sessions(len(sessions)):
+        return
+    # Each session is a `coda code` process: on SIGTERM it stops its own aider
+    # and exits, which closes its terminal window. Nothing else is touched.
+    for pid, _path in sessions:
         try:
-            r = subprocess.run(['wmctrl', '-l'], capture_output=True, text=True)
-            for line in r.stdout.splitlines():
-                parts = line.split(None, 3)
-                if len(parts) >= 4:
-                    title = parts[3]
-                    if title.startswith('Coda ·') or title.startswith('Coda 🤖'):
-                        coda_wins.append(parts[0])
-        except Exception:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
             pass
-
-        if coda_wins:
-            import tkinter as tk
-            from tkinter import messagebox
-            _r = tk.Tk()
-            _r.withdraw()
-            n = len(coda_wins)
-            s = 's' if n != 1 else ''
-            ok = messagebox.askyesno(
-                "Quit Coda",
-                f"You have {n} Coda terminal{s} open.\n\nQuit anyway? All terminals will be closed.",
-                parent=_r)
-            _r.destroy()
-            if not ok:
-                return
-        for wid in coda_wins:
-            subprocess.run(['wmctrl', '-ic', wid], capture_output=True)
-
     for proc in [_email_proc, _prefs_proc]:
         try:
             if proc is not None and proc.poll() is None:
                 proc.terminate()
         except Exception:
             pass
-    subprocess.run(['pkill', '-f', 'coda-email.py'],       capture_output=True)
-    subprocess.run(['pkill', '-f', 'coda-preferences.py'], capture_output=True)
-    for f in [RUNNING_FILE, LOCK_FILE]:
-        try: os.remove(f)
-        except Exception: pass
+    _cleanup_runtime()
     icon.stop()
-    # Safety net: os._exit(0) guarantees exit code 0 (clean quit, not a crash signal).
-    # Code 0 tells the LaunchAgent not to auto-restart. icon.stop() normally exits
-    # the process on its own; this fires after 2s only if it somehow doesn't.
+    # Exit code 0 tells the macOS LaunchAgent not to restart us.
     threading.Timer(2.0, lambda: os._exit(0)).start()
 
-# --- macOS: auto-start Ollama as a background service if not already running ---
+# --- macOS: start Ollama if it is installed but not running ---
 def _ensure_ollama_mac():
-    """Start ollama serve silently if not running, and evict any broken Homebrew version."""
     import urllib.request
-    # Check if something is running on 11434
-    try:
-        resp = urllib.request.urlopen('http://localhost:11434', timeout=3)
-        body = resp.read(256).decode('utf-8', errors='ignore')
-        if 'Ollama' in body:
-            return  # Good ollama is already running
-    except Exception:
-        body = ''
-
-    # If the Homebrew service is what's running (or blocking), evict it
-    brew_check = subprocess.run(
-        ['brew', 'list', '--formula', 'ollama'],
-        capture_output=True, text=True
-    )
-    if brew_check.returncode == 0:
-        subprocess.run(['brew', 'services', 'stop', 'ollama'], capture_output=True)
-        subprocess.run(['launchctl', 'remove', 'homebrew.mxcl.ollama'], capture_output=True)
-        subprocess.run(['pkill', '-f', '/opt/homebrew.*ollama'], capture_output=True)
-        time.sleep(2)
-
-    # Start our headless LaunchAgent
-    subprocess.run(['launchctl', 'start', 'com.coda.ollama'], capture_output=True)
-    time.sleep(3)
     try:
         urllib.request.urlopen('http://localhost:11434', timeout=3)
         return
     except Exception:
         pass
-    # Fallback: find the binary and start directly
-    for _bin in [
-        os.path.expanduser('~/.config/coda/bin/ollama'),
-        '/usr/local/bin/ollama',
-        os.path.expanduser('~/.local/bin/ollama'),
-    ]:
-        if os.path.isfile(_bin) and os.access(_bin, os.X_OK):
-            subprocess.Popen([_bin, 'serve'],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return
+    exe = shutil.which('ollama') or next(
+        (p for p in ('/usr/local/bin/ollama', '/opt/homebrew/bin/ollama',
+                     '/Applications/Ollama.app/Contents/Resources/ollama')
+         if os.access(p, os.X_OK)), None)
+    if exe:
+        subprocess.Popen([exe, 'serve'], stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
 
 # --- Main ---
 def main():
@@ -672,13 +469,21 @@ def main():
         sys.exit(0)
 
     write_lock()
-    generate_desktop_icon()
+    atexit.register(_cleanup_runtime)
     try:
         show_splash()
     except Exception:
         pass  # splash is cosmetic — don't let it block tray startup
 
     icon = pystray.Icon("Coda", create_icon(), "Coda", menu=build_menu())
+
+    def _on_term(signum, frame):
+        _cleanup_runtime()
+        try:
+            icon.stop()
+        finally:
+            os._exit(0)
+    signal.signal(signal.SIGTERM, _on_term)
 
     def setup(ic):
         ic.visible = True
@@ -689,7 +494,7 @@ def main():
     icon.run(setup)
 
 if __name__ == '__main__':
-    log_path = os.path.expanduser('~/.coda-error.log')
+    log_path = os.path.join(C.HOME, '.coda-error.log')
     try:
         main()
     except Exception as e:

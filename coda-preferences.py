@@ -1,24 +1,18 @@
 #!/usr/bin/python3
 import tkinter as tk
 from tkinter import ttk, messagebox
-import json
 import os
-import shutil
+import signal
+import time
 import subprocess
 import threading
-import urllib.request
 
-CONFIG_FILE = os.path.expanduser('~/.config/coda/config.json')
-EMAIL_CONF  = os.path.expanduser('~/.config/coda/email.conf')
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import coda_common as C
 
-PROVIDERS = ["Ollama (local)", "Gemini", "OpenAI", "Claude"]
-
-PROVIDER_MODELS = {
-    "Ollama (local)": ["(enter your model name)"],
-    "Gemini":         ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
-    "OpenAI":         ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
-    "Claude":         ["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5"],
-}
+PROVIDERS       = C.PROVIDERS
+PROVIDER_MODELS = C.PROVIDER_MODELS
 
 PROVIDER_KEY_LABEL = {
     "Ollama (local)": None,
@@ -92,107 +86,8 @@ def apply_theme(root, setting='light'):
         s('TScrollbar',        background=BG2, troughcolor=BG, arrowcolor=FG)
         m('TScrollbar',        background=[('active', BG3)])
 
-def load_config():
-    defaults = {
-        "provider": "Ollama (local)",
-        "ollama_ip": "",
-        "model": "",
-        "api_key": "",
-        "custom_url": "",
-        "email_provider": "Gmail",
-        "email": "",
-        "app_password": "",
-        "imap_server": "imap.gmail.com",
-        "smtp_server": "smtp.gmail.com",
-        "alias": "coda",
-        "refresh_minutes": 5,
-        "user_name": "",
-        "email_ai_provider": "Ollama (local)",
-        "email_ai_key": "",
-        "email_sync_count": 15,
-        "theme": "light",
-        "learning_mode":    "silent",
-        "email_ollama_ip":  "localhost",
-    }
-    try:
-        with open(CONFIG_FILE) as f:
-            data = json.load(f)
-        defaults.update(data)
-    except Exception:
-        pass
-    return defaults
-
-def save_config(cfg):
-    os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
-    with open(CONFIG_FILE, 'w') as f:
-        json.dump(cfg, f, indent=2)
-
-def write_email_conf(cfg):
-    lines = [
-        f"EMAIL={cfg.get('email','')}",
-        f"APP_PASSWORD={cfg.get('app_password','')}",
-        f"IMAP_SERVER={cfg.get('imap_server','')}",
-        f"SMTP_SERVER={cfg.get('smtp_server','')}",
-        f"PROVIDER={cfg.get('email_provider','')}",
-        f"OLLAMA_IP={cfg.get('ollama_ip','')}",
-        f"MODEL={cfg.get('model','')}",
-        f"SYNC_COUNT={cfg.get('email_sync_count', 15)}",
-        f"THEME={cfg.get('theme', 'light')}",
-        f"LEARNING_MODE={cfg.get('learning_mode', 'silent')}",
-        f"EMAIL_OLLAMA_IP={cfg.get('email_ollama_ip', 'localhost')}",
-        f"USER_NAME={cfg.get('user_name', '')}",
-    ]
-    os.makedirs(os.path.dirname(EMAIL_CONF), exist_ok=True)
-    with open(EMAIL_CONF, 'w') as f:
-        f.write('\n'.join(lines) + '\n')
-    os.chmod(EMAIL_CONF, 0o600)
-
-def update_bashrc_alias(alias, cfg):
-    import platform as _platform
-    rc = '~/.zshrc' if _platform.system() == 'Darwin' else '~/.bashrc'
-    bashrc = os.path.expanduser(rc)
-    provider = cfg.get('provider', 'Ollama (local)')
-    model = cfg.get('model', '')
-    api_key = cfg.get('api_key', '')
-    _raw_ip = cfg.get('ollama_ip', '')
-    ollama_ip = _raw_ip.replace('https://', '').replace('http://', '').split(':')[0].strip('/') or 'localhost'
-
-    if provider == "Ollama (local)":
-        base_url = f"http://{ollama_ip}:11434"
-        new_alias = (
-            f"alias {alias}='source ~/aider-env/bin/activate && "
-            f"OLLAMA_API_BASE={base_url} aider --model ollama_chat/{model}'"
-        )
-    elif provider == "Gemini":
-        default_model = model or 'gemini-1.5-pro'
-        new_alias = (
-            f"alias {alias}='source ~/aider-env/bin/activate && "
-            f"GEMINI_API_KEY={api_key} aider --model gemini/{default_model}'"
-        )
-    elif provider == "OpenAI":
-        default_model = model or 'gpt-4o'
-        new_alias = (
-            f"alias {alias}='source ~/aider-env/bin/activate && "
-            f"OPENAI_API_KEY={api_key} aider --model {default_model}'"
-        )
-    elif provider == "Claude":
-        default_model = model or 'claude-opus-4-5'
-        new_alias = (
-            f"alias {alias}='source ~/aider-env/bin/activate && "
-            f"ANTHROPIC_API_KEY={api_key} aider --model {default_model}'"
-        )
-    else:
-        return
-
-    try:
-        with open(bashrc, 'r') as f:
-            lines = f.readlines()
-        lines = [l for l in lines if not l.strip().startswith(f"alias {alias}=")]
-        lines.append(new_alias + '\n')
-        with open(bashrc, 'w') as f:
-            f.writelines(lines)
-    except Exception:
-        pass
+load_config = C.load_config
+save_config = C.save_config
 
 # ─────────────────────────────────────────────
 class PreferencesApp:
@@ -232,37 +127,74 @@ class PreferencesApp:
     def _build_ai_tab(self):
         f = self.tab_ai
 
-        ttk.Label(f, text="AI Provider", font=('', 11, 'bold')).grid(row=0, column=0, columnspan=2, sticky='w', pady=(0,10))
+        ttk.Label(f, text="Coding agent", font=('', 11, 'bold')).grid(row=0, column=0, columnspan=2, sticky='w', pady=(0, 6))
+        ttk.Label(f, text="Opens when you right-click a folder → Call Coda, or run 'coda'.",
+                  foreground='gray', font=('', 9)).grid(row=1, column=0, columnspan=2, sticky='w', pady=(0, 8))
 
-        ttk.Label(f, text="Provider:").grid(row=1, column=0, sticky='w', pady=4)
+        ttk.Label(f, text="Agent:").grid(row=2, column=0, sticky='w', pady=4)
+        self.var_engine = tk.StringVar()
+        self._engine_labels = {v['label']: k for k, v in C.ENGINES.items()}
+        self.cb_engine = ttk.Combobox(f, textvariable=self.var_engine, state='readonly', width=28,
+                                      values=list(self._engine_labels))
+        self.cb_engine.grid(row=2, column=1, sticky='ew', pady=4)
+        self.cb_engine.bind('<<ComboboxSelected>>', self._on_engine_change)
+        self.lbl_engine_status = ttk.Label(f, text="", foreground='gray', font=('', 9), wraplength=440, justify='left')
+        self.lbl_engine_status.grid(row=3, column=0, columnspan=2, sticky='w', pady=(0, 8))
+
+        # Aider-only settings (other agents handle their own login and model)
+        self.aider_box = ttk.LabelFrame(f, text=" Aider settings ", padding=10)
+        self.aider_box.grid(row=4, column=0, columnspan=2, sticky='ew')
+        a = self.aider_box
+
+        ttk.Label(a, text="Provider:").grid(row=1, column=0, sticky='w', pady=4)
         self.var_provider = tk.StringVar()
-        self.cb_provider = ttk.Combobox(f, textvariable=self.var_provider, values=PROVIDERS, state='readonly', width=28)
+        self.cb_provider = ttk.Combobox(a, textvariable=self.var_provider, values=PROVIDERS, state='readonly', width=28)
         self.cb_provider.grid(row=1, column=1, sticky='ew', pady=4)
         self.cb_provider.bind('<<ComboboxSelected>>', self._on_provider_change)
 
-        # Ollama-only: server IP
-        self.lbl_ip = ttk.Label(f, text="Ollama Server IP:")
+        self.lbl_ip = ttk.Label(a, text="Ollama Server IP:")
         self.lbl_ip.grid(row=2, column=0, sticky='w', pady=4)
         self.var_ip = tk.StringVar()
-        self.ent_ip = ttk.Entry(f, textvariable=self.var_ip, width=30)
+        self.ent_ip = ttk.Entry(a, textvariable=self.var_ip, width=30)
         self.ent_ip.grid(row=2, column=1, sticky='ew', pady=4)
 
-        ttk.Label(f, text="Model:").grid(row=3, column=0, sticky='w', pady=4)
+        ttk.Label(a, text="Model:").grid(row=3, column=0, sticky='w', pady=4)
         self.var_model = tk.StringVar()
-        self.cb_model = ttk.Combobox(f, textvariable=self.var_model, width=28)
+        self.cb_model = ttk.Combobox(a, textvariable=self.var_model, width=28)
         self.cb_model.grid(row=3, column=1, sticky='ew', pady=4)
 
-        # API key (cloud providers only)
-        self.lbl_key = ttk.Label(f, text="API Key:")
+        self.lbl_key = ttk.Label(a, text="API Key:")
         self.lbl_key.grid(row=4, column=0, sticky='w', pady=4)
         self.var_key = tk.StringVar()
-        self.ent_key = ttk.Entry(f, textvariable=self.var_key, show='*', width=30)
+        self.ent_key = ttk.Entry(a, textvariable=self.var_key, show='*', width=30)
         self.ent_key.grid(row=4, column=1, sticky='ew', pady=4)
 
-        self.lbl_key_help = ttk.Label(f, text="", foreground='gray', font=('', 9))
+        self.lbl_key_help = ttk.Label(a, text="", foreground='gray', font=('', 9))
         self.lbl_key_help.grid(row=5, column=0, columnspan=2, sticky='w', pady=(0, 6))
-
+        a.columnconfigure(1, weight=1)
         f.columnconfigure(1, weight=1)
+
+    def _engine_key(self):
+        return self._engine_labels.get(self.var_engine.get(), 'aider')
+
+    def _on_engine_change(self, event=None):
+        key = self._engine_key()
+        if key == 'aider':
+            self.aider_box.grid()
+        else:
+            self.aider_box.grid_remove()
+        self.lbl_engine_status.config(text="Checking…", foreground='gray')
+
+        def _check():
+            exe = C.find_engine(key)
+            info = C.ENGINES[key]
+            if exe:
+                extra = '' if key == 'aider' else '  It uses its own login and model settings.'
+                msg, color = f"✓ Found at {exe}.{extra}", 'green'
+            else:
+                msg, color = f"✗ {info['label']} is not installed — get it at {info['url']}", 'red'
+            self.root.after(0, lambda: self.lbl_engine_status.config(text=msg, foreground=color))
+        threading.Thread(target=_check, daemon=True).start()
 
     def _on_provider_change(self, event=None):
         provider = self.var_provider.get()
@@ -359,129 +291,56 @@ class PreferencesApp:
         ttk.Label(f, text="The email assistant always runs locally for privacy.",
                   foreground='gray', font=('', 8)).grid(row=17, column=0, columnspan=2, sticky='w')
 
-        ttk.Separator(f).grid(row=18, column=0, columnspan=2, sticky='ew', pady=10)
-
-        ttk.Label(f, text="Learning", font=('', 11, 'bold')).grid(row=19, column=0, columnspan=2, sticky='w', pady=(0, 6))
-        ttk.Label(f, text="When you edit Coda's reply before sending:").grid(row=20, column=0, columnspan=2, sticky='w')
-
-        ttk.Label(f, text="Learning mode:").grid(row=21, column=0, sticky='w', pady=4)
-        self.var_learning = tk.StringVar()
-        ttk.Combobox(f, textvariable=self.var_learning, values=['Silent', 'Approval', 'Off'],
-                     state='readonly', width=14).grid(row=21, column=1, sticky='w', pady=4)
-        ttk.Label(f, text="Silent: saves corrections automatically\n"
-                          "Approval: asks you before saving each correction\n"
-                          "Off: no learning",
-                  foreground='gray', font=('', 8)).grid(row=22, column=0, columnspan=2, sticky='w')
-
         f.columnconfigure(1, weight=1)
 
-    def _ollama_base_url(self):
-        ip = self.var_email_ollama_ip.get().strip()
-        ip = (ip or 'localhost').replace('http://', '').replace('https://', '').strip('/') or 'localhost'
-        return f"http://{ip}:11434"
+    def _on_email_provider_change(self, event=None):
+        imap, smtp = EMAIL_IMAP.get(self.var_email_prov.get(), ("", ""))
+        self.var_imap.set(imap)
+        self.var_smtp.set(smtp)
+
+    def _email_host(self):
+        return C.normalize_host(self.var_email_ollama_ip.get())
 
     def _check_model_status(self):
         self._model_status_lbl.config(text="Checking…", foreground='gray')
         self._pull_btn.grid_remove()
         self._pull_progress.config(text='')
+        host = self._email_host()
 
         def _check():
-            url = self._ollama_base_url() + '/api/tags'
             try:
-                with urllib.request.urlopen(url, timeout=5) as r:
-                    data = json.loads(r.read())
-                found = any('coda2.0:3b' in m.get('name', '')
-                            for m in data.get('models', []))
-                if found:
-                    self.root.after(0, lambda: self._model_status_lbl.config(
-                        text="✓ Ready", foreground='green'))
-                    self.root.after(0, self._pull_btn.grid_remove)
-                else:
-                    self.root.after(0, lambda: self._model_status_lbl.config(
-                        text="✗ Not installed", foreground='red'))
-                    self.root.after(0, self._pull_btn.grid)
+                found = C.email_model_installed(host)
             except OSError:
-                host = self._ollama_base_url()
+                url = C.ollama_url(host)
                 self.root.after(0, lambda: self._model_status_lbl.config(
-                    text=f"✗ Ollama not reachable at {host}", foreground='red'))
-                self.root.after(0, self._pull_btn.grid_remove)
+                    text=f"✗ Ollama not reachable at {url}", foreground='red'))
+                return
+            if found:
+                self.root.after(0, lambda: self._model_status_lbl.config(text="✓ Ready", foreground='green'))
+            else:
+                self.root.after(0, lambda: self._model_status_lbl.config(text="✗ Not installed", foreground='red'))
+                self.root.after(0, self._pull_btn.grid)
 
         threading.Thread(target=_check, daemon=True).start()
 
     def _pull_model(self):
         self._pull_btn.config(state='disabled')
         self._pull_progress.grid()
+        host = self._email_host()
 
         def _status(msg):
             self.root.after(0, lambda: self._pull_progress.config(text=msg))
 
         def _do():
-            base = self._ollama_base_url()
             try:
-                # ── Pull qwen2.5:3b (streaming keeps connection alive + shows %) ──
-                _status("Downloading qwen2.5:3b…")
-                data = json.dumps({'name': 'qwen2.5:3b', 'stream': True}).encode()
-                req  = urllib.request.Request(f"{base}/api/pull", data=data,
-                                              headers={'Content-Type': 'application/json'})
-                with urllib.request.urlopen(req, timeout=60) as resp:
-                    while True:
-                        line = resp.readline()
-                        if not line:
-                            break
-                        try:
-                            obj   = json.loads(line)
-                            total = obj.get('total', 0)
-                            done  = obj.get('completed', 0)
-                            if total and done:
-                                pct = int(done / total * 100)
-                                _status(f"Downloading qwen2.5:3b… {pct}%")
-                        except Exception:
-                            pass
-
-                # ── Create coda2.0:3b ──────────────────────────────────────────
-                _status("Creating coda2.0:3b…")
-                modelfile = (
-                    'FROM qwen2.5:3b\n'
-                    'SYSTEM "You write emails on behalf of the user. '
-                    'Write naturally and concisely in their voice. '
-                    'Do not use robotic phrases or unnecessary pleasantries."'
-                )
-                data = json.dumps({'name': 'coda2.0:3b',
-                                   'modelfile': modelfile,
-                                   'stream': True}).encode()
-                req  = urllib.request.Request(f"{base}/api/create", data=data,
-                                              headers={'Content-Type': 'application/json'})
-                with urllib.request.urlopen(req, timeout=60) as resp:
-                    while resp.readline():
-                        pass
-
-                # ── Remove qwen2.5:3b ──────────────────────────────────────────
-                _status("Removing qwen2.5:3b…")
-                data = json.dumps({'name': 'qwen2.5:3b'}).encode()
-                req  = urllib.request.Request(f"{base}/api/delete", data=data,
-                                              headers={'Content-Type': 'application/json'},
-                                              method='DELETE')
-                try:
-                    urllib.request.urlopen(req, timeout=30)
-                except Exception:
-                    pass
-
-                _status("✓ coda2.0:3b ready!")
-                self.root.after(0, lambda: self._model_status_lbl.config(
-                    text="✓ Ready", foreground='green'))
+                C.install_email_model(host, _status)
+                self.root.after(0, lambda: self._model_status_lbl.config(text="✓ Ready", foreground='green'))
                 self.root.after(0, self._pull_btn.grid_remove)
-
             except Exception as e:
                 _status(f"✗ {e}")
                 self.root.after(0, lambda: self._pull_btn.config(state='normal'))
 
         threading.Thread(target=_do, daemon=True).start()
-
-    def _on_email_provider_change(self, event=None):
-        prov = self.var_email_prov.get()
-        imap, smtp = EMAIL_IMAP.get(prov, ("", ""))
-        self.var_imap.set(imap)
-        self.var_smtp.set(smtp)
 
     # ── General tab ───────────────────────────────────
     def _build_general_tab(self):
@@ -493,11 +352,10 @@ class PreferencesApp:
         self.var_name = tk.StringVar()
         ttk.Entry(f, textvariable=self.var_name, width=30).grid(row=1, column=1, sticky='ew', pady=4)
 
-        ttk.Label(f, text="Terminal alias:").grid(row=2, column=0, sticky='w', pady=4)
-        self.var_alias = tk.StringVar()
-        ttk.Entry(f, textvariable=self.var_alias, width=30, state='readonly').grid(row=2, column=1, sticky='ew', pady=4)
-        ttk.Label(f, text="Fixed — type 'coda' in terminal to launch", foreground='gray', font=('', 9)).grid(
-            row=3, column=0, columnspan=2, sticky='w')
+        ttk.Label(f, text="Terminal command:").grid(row=2, column=0, sticky='w', pady=4)
+        ttk.Label(f, text="coda", font=('TkFixedFont', 10, 'bold')).grid(row=2, column=1, sticky='w', pady=4)
+        ttk.Label(f, text="Run 'coda' in any project folder to start a coding session.",
+                  foreground='gray', font=('', 9)).grid(row=3, column=0, columnspan=2, sticky='w')
 
         ttk.Label(f, text="Theme:").grid(row=4, column=0, sticky='w', pady=10)
         self.var_theme = tk.StringVar()
@@ -523,7 +381,7 @@ class PreferencesApp:
         ttk.Label(f, text="Uninstall", font=('', 11, 'bold')).grid(row=11, column=0, columnspan=2, sticky='w', pady=(0, 6))
         ttk.Button(f, text='🗑  Uninstall Coda', command=self._uninstall,
                    width=20).grid(row=12, column=0, sticky='w')
-        ttk.Label(f, text="Removes all Coda files, config, contacts,\nlearned data, shortcuts and the AI model.",
+        ttk.Label(f, text="Removes Coda, its settings, contacts, shortcuts and the email AI model.",
                   foreground='gray', font=('', 8)).grid(row=13, column=0, columnspan=2, sticky='w', pady=(4, 0))
 
         f.columnconfigure(1, weight=1)
@@ -533,143 +391,52 @@ class PreferencesApp:
         self._update_status.config(text='Checking for updates…', foreground='gray')
         threading.Thread(target=self._do_update, daemon=True).start()
 
+    def _coda(self, *args):
+        return [sys.executable, os.path.join(C.CODE_DIR, 'coda.py'), *args]
+
     def _do_update(self):
-        coda_dir = os.path.dirname(os.path.abspath(__file__))
-        base_url = 'https://raw.githubusercontent.com/sebamuhr/Coda/main'
-        files = ['coda-tray.py', 'coda-email.py', 'coda-preferences.py']
-
-        def _err(msg):
-            self.root.after(0, lambda: self._update_status.config(text=f'Error: {msg}', foreground='red'))
+        def _ui(text, color):
+            self.root.after(0, lambda: self._update_status.config(text=text, foreground=color))
             self.root.after(0, lambda: self._update_btn.config(state='normal'))
-
-        # If this is a git clone, use git pull
-        if os.path.isdir(os.path.join(coda_dir, '.git')):
-            try:
-                result = subprocess.run(
-                    ['git', 'pull'],
-                    cwd=coda_dir, capture_output=True, text=True, timeout=30
-                )
-                output = (result.stdout + result.stderr).strip()
-                if result.returncode != 0:
-                    return _err(output[:120] or 'git pull failed')
-                if 'Already up to date' in output:
-                    self.root.after(0, lambda: self._update_status.config(text='Already up to date.', foreground='gray'))
-                    self.root.after(0, lambda: self._update_btn.config(state='normal'))
-                else:
-                    self.root.after(0, lambda: self._update_status.config(text='Updated!', foreground='green'))
-                    self.root.after(0, lambda: self._update_btn.config(state='normal'))
-                    self.root.after(200, self._ask_restart)
-            except Exception as e:
-                _err(str(e)[:120])
-            return
-
-        # Installer layout — download files directly from GitHub
         try:
-            for f in files:
-                result = subprocess.run(
-                    ['curl', '-fsSL', f'{base_url}/{f}', '-o', os.path.join(coda_dir, f)],
-                    capture_output=True, text=True, timeout=60
-                )
-                if result.returncode != 0:
-                    return _err(result.stderr.strip()[:120] or f'Failed to download {f}')
-            self.root.after(0, lambda: self._update_status.config(text='Updated! Restart to apply.', foreground='green'))
-            self.root.after(0, lambda: self._update_btn.config(state='normal'))
-            self.root.after(200, self._ask_restart)
+            r = subprocess.run(self._coda('update', '--no-restart'),
+                               capture_output=True, text=True, timeout=180)
         except Exception as e:
-            _err(str(e)[:120])
+            return _ui(f'Error: {str(e)[:100]}', 'red')
+        out = (r.stdout + r.stderr).strip()
+        if r.returncode != 0:
+            return _ui(f'Error: {out.splitlines()[-1][:100] if out else "update failed"}', 'red')
+        if 'Already up to date' in out:
+            return _ui('Already up to date.', 'gray')
+        _ui('Updated!', 'green')
+        self.root.after(200, self._ask_restart)
 
     def _uninstall(self):
         if not messagebox.askyesno(
                 "Uninstall Coda",
                 "This will permanently remove:\n\n"
-                "  •  All configuration and contacts\n"
-                "  •  Learned email preferences\n"
-                "  •  Desktop shortcuts and autostart\n"
-                "  •  The Coda app files\n"
-                "  •  The coda2.0:3b AI model\n\n"
+                "  •  Your Coda settings and contacts\n"
+                "  •  The app launcher, autostart and right-click menu\n"
+                "  •  The 'coda' terminal command\n"
+                "  •  The coding engine (aider) installed for Coda\n"
+                f"  •  The {C.EMAIL_MODEL} email model\n\n"
+                "A git checkout of Coda's source code is never deleted.\n\n"
                 "This cannot be undone. Are you sure?",
                 icon='warning'):
             return
-        if not messagebox.askyesno(
-                "Really uninstall?",
-                "Last chance — remove Coda completely?",
-                icon='warning'):
-            return
-
-        # Remove Ollama model (use email-specific IP)
-        try:
-            cfg = load_config()
-            ip = (cfg.get('email_ollama_ip', '') or 'localhost').replace('http://', '').replace('https://', '').strip('/') or 'localhost'
-            subprocess.run(
-                ['curl', '-s', '-X', 'DELETE',
-                 f'http://{ip}:11434/api/delete',
-                 '-H', 'Content-Type: application/json',
-                 '-d', '{"name":"coda2.0:3b"}'],
-                timeout=10, capture_output=True)
-        except Exception:
-            pass
-
-        # Remove config directory
-        shutil.rmtree(os.path.expanduser('~/.config/coda'), ignore_errors=True)
-
-        # Remove desktop / icon / autostart files
-        for path in [
-            '~/.config/autostart/coda.desktop',
-            '~/.local/share/applications/coda.desktop',
-            '~/Desktop/coda.desktop',
-            '~/.local/share/icons/coda.svg',
-        ]:
-            try:
-                os.remove(os.path.expanduser(path))
-            except Exception:
-                pass
-
-        # Remove .bashrc alias lines
-        try:
-            bashrc = os.path.expanduser('~/.bashrc')
-            with open(bashrc, 'r') as f:
-                lines = f.readlines()
-            lines = [l for l in lines
-                     if '# Coda' not in l and 'alias coda' not in l
-                     and 'coda-tray' not in l]
-            with open(bashrc, 'w') as f:
-                f.writelines(lines)
-        except Exception:
-            pass
-
-        # Remove Nautilus extension (user-local, no sudo needed)
-        for ext_path in [
-            '~/.local/share/nautilus-python/extensions/coda_extension.py',
-            '/usr/share/nautilus-python/extensions/coda_extension.py',
-        ]:
-            try:
-                os.remove(os.path.expanduser(ext_path))
-            except Exception:
-                pass
-        try:
-            subprocess.run(['nautilus', '-q'], capture_output=True, timeout=3)
-        except Exception:
-            pass
-
-        # Kill all running Coda processes and delete app directory
-        coda_dir = os.path.dirname(os.path.abspath(__file__))
-        cleanup = (
-            f'sleep 2 && '
-            f'pkill -f coda-email.py; '
-            f'pkill -f coda-tray.py; '
-            f'rm -rf "{coda_dir}"'
-        )
-        subprocess.Popen(['bash', '-c', cleanup])
-
-        messagebox.showinfo(
-            "Coda uninstalled",
-            "All Coda data, files and the AI model have been removed.\n\n"
-            "Open a new terminal — the 'coda' command will no longer work there.")
+        # The uninstaller stops every Coda process — including this window —
+        # so it runs detached and reports back with a desktop notification.
+        subprocess.Popen(self._coda('uninstall', '--yes'), start_new_session=True,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
         self.root.destroy()
 
     # ── Load values ───────────────────────────────────
     def _load_values(self):
         c = self.cfg
+        engine = c.get('engine', 'aider')
+        self.var_engine.set(C.ENGINES.get(engine, C.ENGINES['aider'])['label'])
+        self._on_engine_change()
         self.var_provider.set(c.get('provider', 'Ollama (local)'))
         self.var_ip.set(c.get('ollama_ip', ''))
         self.var_key.set(c.get('api_key', ''))
@@ -685,9 +452,7 @@ class PreferencesApp:
         self.var_refresh.set(str(c.get('refresh_minutes', 5)))
 
         self.var_name.set(c.get('user_name', ''))
-        self.var_alias.set('coda')
         self.var_theme.set(c.get('theme', 'light').capitalize())
-        self.var_learning.set(c.get('learning_mode', 'silent').capitalize())
         self.var_email_ollama_ip.set(c.get('email_ollama_ip', 'localhost'))
         self.root.after(400, self._check_model_status)
 
@@ -709,6 +474,7 @@ class PreferencesApp:
             return
 
         self.cfg.update({
+            "engine":            self._engine_key(),
             "provider":          self.var_provider.get(),
             "ollama_ip":         self.var_ip.get().strip(),
             "model":             self.var_model.get().strip(),
@@ -719,17 +485,15 @@ class PreferencesApp:
             "imap_server":       self.var_imap.get().strip(),
             "smtp_server":       self.var_smtp.get().strip(),
             "user_name":         self.var_name.get().strip(),
-            "alias":             "coda",
             "refresh_minutes":   refresh,
             "email_sync_count":  sync_count,
             "theme":             self.var_theme.get().lower(),
-            "learning_mode":     self.var_learning.get().lower(),
             "email_ollama_ip":   self.var_email_ollama_ip.get().strip() or 'localhost',
         })
 
+        for stale in ('alias', 'learning_mode', 'email_ai_provider', 'email_ai_key', 'custom_url'):
+            self.cfg.pop(stale, None)
         save_config(self.cfg)
-        write_email_conf(self.cfg)
-        update_bashrc_alias(self.cfg['alias'], self.cfg)
 
         self._ask_restart()
 
@@ -744,31 +508,19 @@ class PreferencesApp:
             self.root.destroy()
 
     def _restart_coda(self):
-        LOCK_FILE = '/tmp/coda-tray.lock'
-        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'coda-tray.py')
-
-        old_pid = None
+        # Stop the running tray, wait until it has really gone (so its lock is
+        # released), then start a fresh one. Never two trays at once.
         try:
-            with open(LOCK_FILE) as f:
+            with open(C.LOCK_FILE) as f:
                 old_pid = int(f.read().strip())
-        except Exception:
+            os.kill(old_pid, signal.SIGTERM)
+            for _ in range(50):
+                os.kill(old_pid, 0)
+                time.sleep(0.1)
+        except (OSError, ValueError):
             pass
-
-        try:
-            os.remove(LOCK_FILE)
-        except Exception:
-            pass
-
-        import sys as _sys
-        subprocess.Popen([_sys.executable, script])
-
-        if old_pid:
-            try:
-                import signal as _signal
-                os.kill(old_pid, _signal.SIGTERM)
-            except Exception:
-                pass
-
+        subprocess.Popen([sys.executable, os.path.join(C.CODE_DIR, 'coda-tray.py')],
+                         start_new_session=True)
         self.root.destroy()
 
 

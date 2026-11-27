@@ -18,11 +18,11 @@ This is Coda — a coding assistant and email agent that sits quietly in your sy
 | **Startup splash** | Pixel-art "CODA" fades in and out when Coda starts |
 | **Terminal fill level** | C icon fills green → yellow → red as coding sessions open (up to 10) |
 | **Email Agent** | Reads inbox, writes replies, saves to Drafts or sends — all from one window |
-| **Model switcher** | Switch AI provider instantly from the tray, no need to open Preferences |
-| **Separate AI per task** | Use local Ollama for coding and Gemini free for email, or any combination |
+| **Model switcher** | Switch the coding AI provider instantly from the tray |
+| **Clean install & uninstall** | One command installs, `coda update` updates, `coda uninstall` removes every trace |
 | **Preferences window** | Configure everything from a clean UI — no config files to edit |
 | **Single-instance windows** | Email Agent and Preferences hide when you close them, reopen instantly from tray |
-| **Privacy first** | Cloud providers shown a warning before processing your emails |
+| **Privacy first** | The Email Agent always uses a local model — your emails never leave your machine or your own Ollama server |
 | **Aider-powered coding** | Git commit on every change, `/undo`, `/diff`, full file editing |
 
 ---
@@ -39,6 +39,16 @@ This is Coda — a coding assistant and email agent that sits quietly in your sy
 
 ## Coding Assistant
 
+**Call Coda opens the coding agent you already use** — pick one in Preferences or from the tray (*Coding Agent*):
+
+| Agent | Notes |
+|---|---|
+| [Claude Code](https://claude.com/claude-code) | uses its own login |
+| [Codex CLI](https://github.com/openai/codex) | uses its own login |
+| [Cursor Agent](https://cursor.com/cli) | uses its own login |
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | uses its own login |
+| [Aider](https://aider.chat) | works with local Ollama models or a Gemini / Claude / OpenAI key — the 100 % offline option |
+
 Start a coding session in three ways:
 
 - **C → Launch Coda** in the tray → pick a folder from the dialog
@@ -50,7 +60,7 @@ cd ~/my-project
 coda
 ```
 
-A terminal opens with your AI ready to work on your files:
+A terminal opens in that folder with your agent ready to work on your files. With Aider, for example:
 
 ```
 > create a weather app with vanilla HTML CSS and JS
@@ -66,7 +76,7 @@ Type `/undo` to roll back the last change instantly.
 > macOS does not allow third-party apps to add custom right-click actions to Finder without a
 > signed App Extension. Use **C → Launch Coda** from the menu bar or the `coda` terminal command instead.
 
-### Useful Aider commands inside a session
+### Useful Aider commands inside a session (when Aider is your agent)
 
 ```
 /add .          add all project files to the session
@@ -84,23 +94,19 @@ Type `/undo` to roll back the last change instantly.
 
 **C → Email Agent** in your system tray opens the email window.
 
-- **Four tabs** — Unread, Read, Drafts, New Email
-- **Select any email** — Coda reads it for context
+- **Tabs** — Inbox, Sent, Drafts, New Email and Contacts
+- **Select any email** — Coda reads the whole thread for context
 - **Describe your reply in plain language** — *"tell him Tuesday works, ask about the budget"*
-- **Coda writes the full professional email**
-- **Save to Drafts** — appears in Gmail ready to review and send
+- **Coda writes the full email in your voice**
+- **Save to Drafts** — appears in your mail app ready to review and send
 - **Send Now** — sends directly without leaving Coda
-- **New Email tab** — write brand new emails the same way
-- **Auto-refresh** — inbox updates automatically every 5 minutes
-- **All panels resizable** — drag dividers to adjust any section to your preference
+- **Contacts** — private notes per person (*"my sister — warm, informal"*) that shape the tone without ever being quoted
+- **Works with Gmail, Outlook, Yahoo and any IMAP/SMTP provider** — Sent and Drafts folders are detected automatically
+- **Auto-refresh** — inbox updates automatically every few minutes
 
-Closing the email window with X does **not** quit it — it stays alive in the background.
-Click **C → Email Agent** again and it reappears instantly, with your inbox already loaded.
+Closing the email window with X does **not** quit it — click **C → Email Agent** and it reappears instantly.
 
-It only fully closes when you choose **Quit** from the tray.
-
-Coda connects directly to your email account over IMAP/SMTP using an App Password.
-Your emails never touch a third-party server unless you choose a cloud AI provider for email — in which case Coda shows a privacy warning before proceeding.
+**Privacy:** the Email Agent always runs on a small local model (`coda2.0:3b`, based on Qwen 2.5 3B) through Ollama — on this computer or on your own server. Coda connects straight to your mail provider over IMAP/SMTP with an app password. No email content is ever sent to a cloud AI.
 
 ![Email Agent](assistant1.png)
 ![Email Agent writing a reply](assistant2.png)
@@ -131,188 +137,95 @@ If you switch to a cloud provider and haven't added an API key yet, Coda reminds
 
 ---
 
-## Separate AI for Coding and Email
+## Supported AI Providers (coding)
 
-In **Preferences → Email tab** you can choose a different AI provider for the Email Agent than the one used for coding.
-
-For example:
-- **Coding** — Ollama local model (private, no cost, always available)
-- **Email** — Gemini free tier (more capable for writing, processes email content externally)
-
-Or keep both on local Ollama for complete privacy.
-
----
-
-## Supported AI Providers
-
-| Provider | Free tier | Works for |
+| Provider | Free tier | Notes |
 |---|---|---|
-| Ollama (local) | ✓ free forever | Coding + Email |
-| Gemini | ✓ free tier | Coding + Email |
-| Claude API | paid | Coding + Email |
-| OpenAI | paid | Coding + Email |
-
-Get a free Gemini API key at [aistudio.google.com](https://aistudio.google.com).
+| Ollama (local) | ✓ free forever | Private — runs on your machine or your own server |
+| Gemini | ✓ free tier | Key at [aistudio.google.com](https://aistudio.google.com) |
+| Claude | paid | Key at [console.anthropic.com](https://console.anthropic.com) |
+| OpenAI | paid | Key at [platform.openai.com](https://platform.openai.com) |
 
 ---
 
 ## Requirements
 
-- **Linux** — Debian/Ubuntu based (tested on Zorin OS and Ubuntu)
-- **macOS** — Ventura or later
-- Python 3
-- For local models: Ollama (installed automatically by the installer)
-- For email: Gmail App Password, or any IMAP/SMTP provider
-- Linux only: Nautilus file manager (GNOME) for the right-click extension
+- **Linux** — Debian/Ubuntu based (tested on Zorin OS and Ubuntu); the right-click menu needs GNOME Files (Nautilus)
+- **macOS** — Ventura or later, with [Homebrew](https://brew.sh)
+- Python 3.10+ (aider needs 3.10–3.12; the installer finds or installs one)
+- [Ollama](https://ollama.com) for local models and for the Email Agent
+- For email: an app password from your mail provider
 
 ---
 
-## Installation
-
-### One-line install (Linux and macOS)
+## Install
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/sebamuhr/Coda/main/install.sh)
 ```
 
-The installer detects your platform and walks you through everything interactively:
+The installer asks which AI to use, your email details (optional) and whether to download the email model. It is **safe to run again** — it updates in place, keeps your settings, and removes any old duplicate copies of Coda it finds.
 
-1. Choose your AI provider (Ollama, Gemini, Claude, OpenAI)
-2. Enter your server IP or API key
-3. Pick your model
-4. Set up the Email Agent (optional)
-5. Everything is configured and running
+Useful options: `--yes` (no questions, configure later in Preferences), `--reconfigure`, `--skip-aider`, `--no-autostart`. Run with `--help` for the full list.
 
-**macOS notes:**
-- Requires [Homebrew](https://brew.sh) — the installer will check for it
-- Ollama is downloaded and runs as a hidden background service — no icon, no app to open
-- The alias is written to `~/.zshrc`
-- Coda starts on login via a LaunchAgent — click the Coda icon in the menu bar to reopen it after quitting
-- `Coda.app` is created in `~/Applications` — search **Coda** in Spotlight to relaunch it anytime
-- Right-click "Call Coda" in Finder is **not available** on macOS — use **C → Launch Coda** or the `coda` terminal command
-
-### Manual install
-
-<details>
-<summary>Linux — click to expand</summary>
-
-**1. Install system dependencies**
+**From source (developers):**
 
 ```bash
-sudo apt install python3 python3-pip python3-tk python3-venv \
-    python3-nautilus gir1.2-ayatanaappindicator3-0.1 \
-    python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
-    wmctrl libnotify-bin
-python3 -m pip install pystray pillow
+git clone https://github.com/sebamuhr/Coda.git
+cd Coda && ./install.sh
 ```
 
-**2. Install Aider**
+Coda then runs straight from your checkout, so your edits take effect on the next restart.
+
+### Where Coda keeps things
+
+| Path | What |
+|---|---|
+| `~/.local/share/coda/` | the app, its Python environment and the coding engine (aider) |
+| `~/.config/coda/` | your settings and contacts (only readable by you) |
+| `~/.local/bin/coda` | the `coda` command |
+| `~/.config/autostart/coda.desktop`, `~/.local/share/applications/coda.desktop` | start on login, app menu entry (Linux) |
+| `~/Library/LaunchAgents/com.coda.plist`, `~/Applications/Coda.app` | the same on macOS |
+
+Nothing is written to your shell config, and API keys are never placed on a command line.
+
+### Commands
 
 ```bash
-python3 -m venv ~/aider-env
-source ~/aider-env/bin/activate
-pip install aider-chat
+coda                 # coding session in the current folder
+coda open ~/project  # coding session in a new terminal window
+coda doctor          # check the install, find leftovers or duplicate copies
+coda update          # update to the latest version
+coda uninstall       # remove Coda completely
 ```
 
-**3. Download Coda**
+### Update
+
+**C → Preferences → General → Update Coda**, or `coda update`.
+
+### Uninstall
+
+**C → Preferences → General → Uninstall Coda**, or `coda uninstall`. This removes the app, settings, contacts, launchers, the `coda` command and the email model. A git checkout of the source is never deleted.
+
+If Coda is broken or half-removed:
 
 ```bash
-git clone https://github.com/sebamuhr/Coda.git ~/coda-project
+bash <(curl -fsSL https://raw.githubusercontent.com/sebamuhr/Coda/main/uninstall.sh)
 ```
 
-**4. Install the right-click extension**
+---
+
+## Use Coda from your AI agent (skill)
+
+Coda also ships as an agent skill (`skill/SKILL.md`; build the zip with `./make-skill.sh`). With it, Claude Code, Codex or Cursor can install Coda for you and handle your email through the `coda mail` command:
 
 ```bash
-sudo mkdir -p /usr/share/nautilus-python/extensions/
-sudo curl -fsSL https://raw.githubusercontent.com/sebamuhr/Coda/main/coda_extension.py \
-    -o /usr/share/nautilus-python/extensions/coda_extension.py
-nautilus -q
+coda mail list --unread              # what's new
+coda mail read "<message-id>"        # a message with its whole thread
+coda mail draft --reply-to "<message-id>" --body-file reply.txt   # saved as a draft
 ```
 
-**5. Create desktop entry and autostart**
-
-```bash
-mkdir -p ~/.local/share/applications ~/.config/autostart
-
-cat > ~/.local/share/applications/coda.desktop << EOF
-[Desktop Entry]
-Type=Application
-Name=Coda
-Exec=/usr/bin/python3 $HOME/coda-project/coda-tray.py
-Icon=$HOME/.local/share/icons/coda.png
-Terminal=false
-Categories=Development;Utility;
-EOF
-
-cp ~/.local/share/applications/coda.desktop ~/.config/autostart/coda.desktop
-```
-
-**6. Launch and configure**
-
-```bash
-/usr/bin/python3 ~/coda-project/coda-tray.py &
-```
-
-Click **C → Preferences** and fill in your AI provider and email settings.
-
-</details>
-
-<details>
-<summary>macOS — click to expand</summary>
-
-**1. Install dependencies**
-
-```bash
-brew install python-tk
-python3 -m pip install pystray pillow
-```
-
-**2. Install Aider**
-
-```bash
-python3 -m venv ~/aider-env
-source ~/aider-env/bin/activate
-pip install aider-chat
-```
-
-**3. Download Coda**
-
-```bash
-git clone https://github.com/sebamuhr/Coda.git ~/coda-project
-```
-
-**4. Create a LaunchAgent for autostart**
-
-```bash
-mkdir -p ~/Library/LaunchAgents
-cat > ~/Library/LaunchAgents/com.coda.plist << EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key><string>com.coda.tray</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>$(which python3)</string>
-        <string>$HOME/coda-project/coda-tray.py</string>
-    </array>
-    <key>RunAtLoad</key><true/>
-    <key>KeepAlive</key><false/>
-</dict>
-</plist>
-EOF
-launchctl load ~/Library/LaunchAgents/com.coda.plist
-```
-
-**5. Launch and configure**
-
-```bash
-python3 ~/coda-project/coda-tray.py &
-```
-
-Click **C → Preferences** and fill in your AI provider and email settings.
-
-</details>
+Replies are always saved as drafts unless you explicitly ask your agent to send (`coda mail send … --confirm`). Your app password stays in Coda's settings and is never shown to the agent.
 
 ---
 
@@ -322,9 +235,9 @@ Click **C → Preferences** and fill in your AI provider and email settings.
 Your desktop
 │
 ├── System tray  (C icon)
-│   ├── Launch Coda  ──────────────► folder picker → coding terminal
+│   ├── Launch Coda  ──────────────► folder picker → your coding agent
 │   ├── Email Agent  ──────────────► email window (hides on X, stays alive)
-│   ├── Switch Model  ─────────────► change AI provider instantly
+│   ├── Coding Agent  ─────────────► Claude Code, Codex, Cursor, Gemini or Aider
 │   ├── Preferences  ──────────────► configure everything
 │   └── Quit  ─────────────────────► closes everything cleanly
 │
@@ -332,7 +245,7 @@ Your desktop
 │   └── Call Coda  ────────────────► coding terminal in that folder
 │
 └── Terminal
-    └── coda  (or your alias)  ────► coding session in current folder
+    └── coda  ─────────────────────► coding session in current folder
 ```
 
 ---
@@ -341,7 +254,8 @@ Your desktop
 
 - The **Call Coda** right-click option (Linux only) only appears when Coda is running — quit from the tray and it disappears automatically
 - The **fill level** on the C icon shows how many coding sessions are open — green for few, yellow for several, red when busy (max 10)
-- **Save to Drafts** is safer for email — review in Gmail before sending
+- **Save to Drafts** is safer for email — review it in your mail app before sending
+- Something odd? Run `coda doctor` — it shows what is installed where and how to fix leftovers
 - Use `/add .` in a coding session to let Coda see all your project files
 - Keep coding instructions focused — one task at a time works best with local models
 - Every coding change is a git commit — you always have a full history to roll back

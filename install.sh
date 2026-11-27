@@ -1,39 +1,74 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════
-#  Coda Installer
-#  https://github.com/sebamuhr/Coda
+#  Coda installer — https://github.com/sebamuhr/Coda
+#
+#    bash <(curl -fsSL https://raw.githubusercontent.com/sebamuhr/Coda/main/install.sh)
+#
+#  Safe to run again: it updates the existing install in place, keeps your
+#  settings, and removes old duplicate copies and launchers.
+#
+#  Options:
+#    --yes            no questions; use defaults (configure later in Preferences)
+#    --reconfigure    ask the setup questions even if Coda is already configured
+#    --skip-system    don't install system packages (apt / brew)
+#    --engine NAME    coding agent "Call Coda" opens: claude, codex, cursor-agent,
+#                     gemini or aider (default: the first one already installed,
+#                     else aider)
+#    --skip-aider     don't install aider
+#    --no-autostart   don't start Coda on login
+#    --no-start       don't start Coda when the install finishes
+#
+#  Everything goes in:
+#    ~/.local/share/coda    app, Python environments
+#    ~/.config/coda         your settings and contacts
+#    ~/.local/bin/coda      the 'coda' command
+#  Remove it all with:  coda uninstall
 # ═══════════════════════════════════════════════════════════════
+set -euo pipefail
 
-set -e
+REPO="sebamuhr/Coda"
+BRANCH="${CODA_BRANCH:-main}"
+OS=$(uname -s)
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/coda"
+CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/coda/config.json"
 
-OS=$(uname -s)   # Linux or Darwin
+YES=0; RECONFIGURE=0; SKIP_SYSTEM=0; SKIP_AIDER=0; AUTOSTART=1; START=1; ENGINE=""
+while [ $# -gt 0 ]; do
+    arg=$1; shift
+    case "$arg" in
+        --engine)        ENGINE=${1:-}; shift || true ;;
+        --engine=*)      ENGINE=${arg#--engine=} ;;
+        --yes|-y)        YES=1 ;;
+        --reconfigure)   RECONFIGURE=1 ;;
+        --skip-system)   SKIP_SYSTEM=1 ;;
+        --skip-aider)    SKIP_AIDER=1 ;;
+        --no-autostart)  AUTOSTART=0 ;;
+        --no-start)      START=0 ;;
+        -h|--help)       sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "Unknown option: $arg (see --help)"; exit 1 ;;
+    esac
+done
+case "$ENGINE" in ""|claude|codex|cursor-agent|gemini|aider) ;;
+    *) echo "Unknown --engine '$ENGINE' (claude, codex, cursor-agent, gemini, aider)"; exit 1 ;;
+esac
 
-REPO="https://raw.githubusercontent.com/sebamuhr/Coda/main"
-CODA_DIR="$HOME/Coda"
-CONFIG_DIR="$HOME/.config/coda"
-
-BOLD=$(tput bold 2>/dev/null || echo "")
-RESET=$(tput sgr0 2>/dev/null || echo "")
-GRAY='\033[0;90m'
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-RED='\033[0;31m'
-NC='\033[0m'
-
-step() { echo ""; echo -e "${BLUE}${BOLD}[$1/$STEPS]${RESET} $2"; }
+BOLD=$(tput bold 2>/dev/null || true); RESET=$(tput sgr0 2>/dev/null || true)
+GRAY='\033[0;90m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
+STEPS=7
+step() { echo; echo -e "${BLUE}${BOLD}[$1/$STEPS]${RESET} $2"; }
 ok()   { echo -e "    ${GREEN}✓  $1${NC}"; }
 warn() { echo -e "    ${YELLOW}⚠  $1${NC}"; }
-ask()  { echo -e "${YELLOW}$1${NC}"; }
-hr()   { echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; }
+die()  { echo -e "${RED}✗  $1${NC}" >&2; exit 1; }
 lc()   { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+ask()  {  # ask VAR "question" "default" [secret]
+    local __var=$1 __q=$2 __def=${3:-} __ans=""
+    if [ "$YES" = 1 ]; then printf -v "$__var" '%s' "$__def"; return; fi
+    if [ "${4:-}" = secret ]; then read -r -s -p "  $__q: " __ans; echo
+    else read -r -p "  $__q${__def:+ [$__def]}: " __ans; fi
+    printf -v "$__var" '%s' "${__ans:-$__def}"
+}
+yesno() { local a; ask a "$1 [y/N]" "${2:-n}"; [ "$(lc "$a")" = y ] || [ "$(lc "$a")" = yes ]; }
 
-STEPS=8
-
-# ── Banner ────────────────────────────────────────────────────
-clear
-echo ""
 echo -e "${BLUE}${BOLD}"
 cat << 'BANNER'
    ██████╗ ██████╗ ██████╗  █████╗
@@ -43,773 +78,216 @@ cat << 'BANNER'
   ╚██████╗╚██████╔╝██████╔╝██║  ██║
    ╚═════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝
 BANNER
-echo -e "${RESET}"
-echo "  Your local AI assistant — code, email, no subscription"
-echo "  https://github.com/sebamuhr/Coda"
-echo ""
-hr
-echo ""
+echo -e "${RESET}  Your local AI assistant — code and email, no subscription"
+echo
 
-# ── AI Provider ───────────────────────────────────────────────
-ask "Which AI provider do you want to use?"
-echo ""
-echo "  1) Ollama  (local)  — your own model, 100% private, no API key needed"
-echo "  2) Gemini           — Google AI, free tier at aistudio.google.com"
-echo "  3) Claude API       — Anthropic, best for complex code (paid)"
-echo "  4) OpenAI           — GPT-4o and others (paid)"
-echo ""
-read -p "  Choice [1]: " PROVIDER_CHOICE
-PROVIDER_CHOICE=${PROVIDER_CHOICE:-1}
+command -v python3 >/dev/null || die "python3 is required."
+command -v curl    >/dev/null || die "curl is required."
 
-OLLAMA_IP=""
-MODEL=""
-API_KEY=""
-
-case "$PROVIDER_CHOICE" in
-  1)
-    PROVIDER="Ollama (local)"
-    echo ""
-    ask "Where is Ollama running?"
-    echo "  Use 'localhost' if it's on this machine, or enter the server IP."
-    echo ""
-    read -p "  Ollama IP [localhost]: " OLLAMA_IP
-    OLLAMA_IP=${OLLAMA_IP:-localhost}
-    # Strip any http:// prefix the user might type
-    OLLAMA_IP="${OLLAMA_IP#http://}"
-    OLLAMA_IP="${OLLAMA_IP%%:*}"
-
-    echo ""
-    echo -e "  Testing connection to ${CYAN}http://${OLLAMA_IP}:11434${NC}..."
-    if curl -s --connect-timeout 5 "http://${OLLAMA_IP}:11434" 2>/dev/null | grep -q "Ollama"; then
-        ok "Connected!"
-    else
-        warn "Could not reach Ollama — check it is running and accessible."
-        read -p "  Continue anyway? [y/N]: " CONT
-        [ "$(lc "$CONT")" = "y" ] || exit 1
-    fi
-
-    echo ""
-    ask "Which model do you want to use?"
-    echo -e "  ${GRAY}(no GPU? qwen2.5:3b is a good choice)${NC}"
-    MODELS_JSON=$(curl -s --connect-timeout 5 "http://${OLLAMA_IP}:11434/api/tags" 2>/dev/null) || true
-    if [ -n "$MODELS_JSON" ]; then
-        echo "  Models on your server:"
-        echo "$MODELS_JSON" | python3 -c "
-import json,sys
-for m in json.load(sys.stdin).get('models',[]): print('    •', m['name'])
-" 2>/dev/null || true
-        echo ""
-    fi
-    read -p "  Model name: " MODEL
-    [ -n "$MODEL" ] || { echo -e "${RED}Model name is required.${NC}"; exit 1; }
-    ;;
-
-  2)
-    PROVIDER="Gemini"
-    echo ""
-    ask "Gemini API key  (get one free at aistudio.google.com):"
-    read -p "  API key: " API_KEY
-    [ -n "$API_KEY" ] || { echo -e "${RED}API key is required.${NC}"; exit 1; }
-    echo ""
-    ask "Which model?  (leave blank for gemini-2.0-flash)"
-    echo "  Options: gemini-2.0-flash   gemini-1.5-pro   gemini-1.5-flash"
-    read -p "  Model [gemini-2.0-flash]: " MODEL
-    MODEL=${MODEL:-gemini-2.0-flash}
-    ;;
-
-  3)
-    PROVIDER="Claude"
-    echo ""
-    ask "Anthropic API key  (console.anthropic.com):"
-    read -p "  API key: " API_KEY
-    [ -n "$API_KEY" ] || { echo -e "${RED}API key is required.${NC}"; exit 1; }
-    echo ""
-    ask "Which model?  (leave blank for claude-sonnet-4-5)"
-    echo "  Options: claude-opus-4-5   claude-sonnet-4-5   claude-haiku-4-5"
-    read -p "  Model [claude-sonnet-4-5]: " MODEL
-    MODEL=${MODEL:-claude-sonnet-4-5}
-    ;;
-
-  4)
-    PROVIDER="OpenAI"
-    echo ""
-    ask "OpenAI API key  (platform.openai.com):"
-    read -p "  API key: " API_KEY
-    [ -n "$API_KEY" ] || { echo -e "${RED}API key is required.${NC}"; exit 1; }
-    echo ""
-    ask "Which model?  (leave blank for gpt-4o)"
-    echo "  Options: gpt-4o   gpt-4o-mini   gpt-4-turbo"
-    read -p "  Model [gpt-4o]: " MODEL
-    MODEL=${MODEL:-gpt-4o}
-    ;;
-
-  *)
-    echo -e "${RED}Invalid choice.${NC}"; exit 1
-    ;;
-esac
-
-# ── Your name ──────────────────────────────────────────────────
-echo ""
-ask "Your first name  (used for email sign-offs):"
-read -p "  Name: " USER_NAME
-USER_NAME=${USER_NAME:-User}
-
-# ── Terminal alias ─────────────────────────────────────────────
-ALIAS_NAME="coda"
-echo ""
-ask "Terminal command:"
-echo -e "  ${GRAY}coda${NC}"
-
-# ── Email Agent ────────────────────────────────────────────────
-echo ""
-hr
-echo ""
-ask "Email Agent setup  (reads inbox, writes replies with AI)"
-echo -e "  ${GRAY}This needs a Gmail App Password — myaccount.google.com/apppasswords${NC}"
-echo ""
-read -p "  Set up Email Agent now? [y/N]: " SETUP_EMAIL
-
-EMAIL_ADDR=""
-APP_PASSWORD=""
-EMAIL_PROVIDER="Gmail"
-IMAP_SERVER="imap.gmail.com"
-SMTP_SERVER="smtp.gmail.com"
-
-if [ "$(lc "$SETUP_EMAIL")" = "y" ]; then
-    echo ""
-    ask "Email address:"
-    read -p "  Email: " EMAIL_ADDR
-    echo ""
-    ask "App Password:"
-    echo -e "  ${GRAY}16 characters — get it at myaccount.google.com/apppasswords${NC}"
-    echo -e "  ${GRAY}(requires 2-Step Verification to be enabled on your Google account)${NC}"
-    read -p "  App Password: " APP_PASSWORD
-    echo ""
+# Stop any running Coda (from any location) so files can be replaced safely.
+if pgrep -f 'coda-(tray|email|preferences)\.py' >/dev/null 2>&1; then
+    pkill -f 'coda-(tray|email|preferences)\.py' || true
+    sleep 1
+    echo -e "  ${GRAY}Stopped the running Coda — it restarts at the end.${NC}"
 fi
 
-# ── Confirm ────────────────────────────────────────────────────
-echo ""
-hr
-echo -e "  ${BOLD}Ready to install with:${RESET}"
-echo ""
-echo "    Provider  :  $PROVIDER"
-[ -n "$OLLAMA_IP" ] && echo "    Ollama    :  http://${OLLAMA_IP}:11434"
-echo "    Model     :  $MODEL"
-echo "    Command   :  $ALIAS_NAME"
-echo "    Your name :  $USER_NAME"
-[ -n "$EMAIL_ADDR" ] && echo "    Email     :  $EMAIL_ADDR"
-echo ""
-hr
-echo ""
-read -p "  Proceed? [Y/n]: " PROCEED
-[ "$(lc "$PROCEED")" = "n" ] && { echo "Aborted."; exit 0; }
-echo ""
-
-# ══════════════════════════════════════════════════════════════
-#  INSTALLATION
-# ══════════════════════════════════════════════════════════════
-
-# ── 1: System packages ─────────────────────────────────────────
-step 1 "Installing system packages..."
-if [ "$OS" = "Darwin" ]; then
-    if ! command -v brew &>/dev/null; then
-        warn "Homebrew not found — install it from brew.sh, then re-run this installer."
-        exit 1
-    fi
-    brew install python-tk 2>/dev/null || true
+# ── 1: System packages ──────────────────────────────────────────
+step 1 "System packages"
+if [ "$SKIP_SYSTEM" = 1 ]; then
+    ok "skipped"
+elif [ "$OS" = Darwin ]; then
+    command -v brew >/dev/null || die "Homebrew is required on macOS — install it from https://brew.sh"
+    brew install python-tk >/dev/null 2>&1 || warn "could not install python-tk"
+    ok "python-tk"
+elif command -v apt-get >/dev/null; then
+    echo -e "  ${GRAY}Needs your password for apt-get.${NC}"
+    sudo apt-get install -y -q python3-venv python3-tk python3-gi python3-nautilus \
+        gir1.2-ayatanaappindicator3-0.1 libnotify-bin >/dev/null \
+        || warn "some packages failed to install — Coda may still work"
+    ok "python3-venv, tk, nautilus-python, app indicator"
 else
-    sudo apt-get install -y -q \
-        python3 python3-pip python3-tk python3-venv \
-        python3-nautilus gir1.2-ayatanaappindicator3-0.1 \
-        wmctrl libnotify-bin 2>/dev/null || true
+    warn "Not a Debian/Ubuntu system — install the equivalents of: python3-venv python3-tk"
+    warn "python3-gi, nautilus-python and an AppIndicator library, then re-run with --skip-system."
 fi
-ok "Done"
 
-# ── 2: Python packages ─────────────────────────────────────────
-step 2 "Installing Python packages..."
-python3 -m pip install pystray pillow requests --break-system-packages -q 2>/dev/null \
-    || python3 -m pip install pystray pillow requests --user -q
-ok "pystray, pillow and requests installed"
+# ── 2: Coda itself ──────────────────────────────────────────────
+step 2 "Coda app"
+SRC_DIR=""
+if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "$(dirname "${BASH_SOURCE[0]}")/coda.py" ]; then
+    SRC_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+fi
+mkdir -p "$DATA_DIR"
+if [ -n "$SRC_DIR" ] && [ -d "$SRC_DIR/.git" ]; then
+    # Developer checkout: run straight from it so edits take effect immediately.
+    CODE_DIR="$SRC_DIR"
+    ok "using your git checkout at $CODE_DIR"
+else
+    CODE_DIR="$DATA_DIR/app"
+    TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+    if [ -n "$SRC_DIR" ]; then
+        mkdir -p "$TMP/coda" && cp -a "$SRC_DIR/." "$TMP/coda/"
+    else
+        curl -fsSL "https://github.com/$REPO/archive/refs/heads/$BRANCH.tar.gz" | tar -xz -C "$TMP"
+        mv "$TMP"/Coda-* "$TMP/coda"
+    fi
+    [ -f "$TMP/coda/coda.py" ] || die "download does not look like Coda"
+    rm -rf "$CODE_DIR.old"; [ -d "$CODE_DIR" ] && mv "$CODE_DIR" "$CODE_DIR.old"
+    mv "$TMP/coda" "$CODE_DIR"; rm -rf "$CODE_DIR.old"
+    ok "installed to $CODE_DIR"
+fi
 
-# ── 3: Aider ───────────────────────────────────────────────────
-step 3 "Setting up Aider  (the coding engine)..."
-echo -e "  ${GRAY}This may take a few minutes…${NC}"
+# ── 3: Python environment for the tray ──────────────────────────
+step 3 "Python environment"
+VENV="$DATA_DIR/venv"
+# --system-site-packages: the tray needs the system's GTK/AppIndicator bindings.
+[ -x "$VENV/bin/python3" ] || python3 -m venv --system-site-packages "$VENV" \
+    || die "could not create a Python venv (on Ubuntu: sudo apt install python3-venv)"
+"$VENV/bin/python3" -m pip install -q --upgrade pip
+"$VENV/bin/python3" -m pip install -q pystray pillow requests
+PY="$VENV/bin/python3"
+ok "$VENV"
 
-# aider-chat requires Python 3.12 — newer versions cap at 3.12, older ones
-# can't build their pinned numpy on 3.13+. Prefer 3.12, fall back to 3.11.
-VENV_PYTHON=""
-for _py in python3.12 python3.11; do
-    command -v "$_py" &>/dev/null && { VENV_PYTHON="$_py"; break; }
+# ── 4: Coding agent ─────────────────────────────────────────────
+step 4 "Coding agent for right-click → Call Coda"
+if [ -z "$ENGINE" ] && [ -f "$CONFIG_FILE" ] && [ "$RECONFIGURE" = 0 ]; then
+    ENGINE=$("$PY" -c "import sys; sys.path.insert(0,'$CODE_DIR'); import coda_common as C; print(C.load_config().get('engine','aider'))")
+fi
+if [ -z "$ENGINE" ]; then
+    FOUND=$("$PY" -c "import sys; sys.path.insert(0,'$CODE_DIR'); import coda_common as C; print(' '.join(e for e in C.installed_engines() if e != 'aider'))")
+    DEFAULT_ENGINE=${FOUND%% *}; DEFAULT_ENGINE=${DEFAULT_ENGINE:-aider}
+    [ -n "$FOUND" ] && echo -e "  ${GRAY}Found on this computer: ${FOUND}${NC}"
+    echo "    claude        Claude Code"
+    echo "    codex         Codex CLI"
+    echo "    cursor-agent  Cursor Agent"
+    echo "    gemini        Gemini CLI"
+    echo "    aider         Aider — works with local Ollama models, Gemini, Claude or OpenAI keys"
+    ask ENGINE "Which agent should open" "$DEFAULT_ENGINE"
+fi
+"$PY" -c "import sys; sys.path.insert(0,'$CODE_DIR'); import coda_common as C; sys.exit(0 if C.find_engine('$ENGINE') or '$ENGINE'=='aider' else 1)" \
+    || warn "$ENGINE is not installed yet — install it, or pick another agent later in Preferences"
+ok "Call Coda opens: $ENGINE"
+[ "$ENGINE" = aider ] || SKIP_AIDER=1
+EXISTING_AIDER=""
+for a in "$DATA_DIR/aider-env/bin/aider" "$HOME/aider-env/bin/aider" "$(command -v aider || true)"; do
+    [ -n "$a" ] && [ -x "$a" ] && { EXISTING_AIDER="$a"; break; }
 done
-if [ -z "$VENV_PYTHON" ]; then
-    if [ "$OS" = "Darwin" ]; then
-        warn "Installing python@3.12 via Homebrew (required for aider compatibility)..."
-        brew install python@3.12 -q
-        VENV_PYTHON="$(brew --prefix python@3.12)/bin/python3.12"
-    else
-        VENV_PYTHON=python3
-    fi
-fi
-
-# Always recreate the venv so we pick up the right Python version
-rm -rf "$HOME/aider-env"
-"$VENV_PYTHON" -m venv ~/aider-env
-source ~/aider-env/bin/activate
-pip install --upgrade pip setuptools wheel -q
-pip install --no-cache-dir --prefer-binary aider-chat
-deactivate
-ok "Aider installed in ~/aider-env"
-
-# ── 4: Download Coda ───────────────────────────────────────────
-step 4 "Downloading Coda..."
-mkdir -p "$CODA_DIR"
-for f in coda-tray.py coda-email.py coda-preferences.py; do
-    echo -e "    Downloading ${CYAN}${f}${NC}..."
-    curl -fsSL "${REPO}/${f}" -o "${CODA_DIR}/${f}"
-done
-ok "All files saved to ~/Coda/"
-
-# ── 5: Email AI model (coda2.0:3b) ────────────────────────────
-step 5 "Setting up Email AI (coda2.0:3b)..."
-echo ""
-echo -e "  ${CYAN}The Email Assistant uses a dedicated local model (coda2.0:3b).${NC}"
-echo "  This is completely separate from your Call Coda setup."
-echo ""
-
-# macOS: run ollama as a headless background service — no icon, no app, just like Linux
-if [ "$OS" = "Darwin" ]; then
-    # Stop Homebrew's ollama SERVICE first — brew services uses launchd to restart
-    # the process automatically after pkill, so we must stop the service before killing
-    if brew list --formula ollama &>/dev/null 2>&1; then
-        warn "Removing broken Ollama Homebrew formula (0.30.x, missing llama-server)…"
-        brew services stop ollama 2>/dev/null || true
-        launchctl remove homebrew.mxcl.ollama 2>/dev/null || true
-        brew uninstall --formula ollama 2>/dev/null || true
-    fi
-    # Kill any remaining ollama processes
-    if pgrep -f ollama &>/dev/null; then
-        warn "Stopping existing Ollama process…"
-        pkill -f ollama 2>/dev/null || true
-        sleep 2
-    fi
-
-    # Find or download the ollama CLI binary (headless server, no GUI)
-    OLLAMA_BIN=""
-    for _p in /usr/local/bin/ollama "$HOME/.local/bin/ollama" "$HOME/.config/coda/bin/ollama"; do
-        if [ -x "$_p" ]; then OLLAMA_BIN="$_p"; break; fi
-    done
-
-    if [ -z "$OLLAMA_BIN" ]; then
-        echo -e "  ${CYAN}Downloading Ollama…${NC}"
-        mkdir -p "$HOME/.config/coda/bin"
-        _ARCH=$(uname -m)  # arm64 (Apple Silicon) or x86_64 (Intel)
-        _OLLAMA_BIN_URL=$(curl -sf "https://api.github.com/repos/ollama/ollama/releases/latest" | python3 -c "
-import sys, json
-arch = '$(uname -m)'
-data = json.load(sys.stdin)
-# Try arch-specific binary first, then universal darwin binary
-names = [f'ollama-darwin-{arch}', 'ollama-darwin']
-for name in names:
-    for a in data.get('assets', []):
-        if a.get('name') == name:
-            print(a['browser_download_url']); exit(0)
-" 2>/dev/null)
-        [ -z "$_OLLAMA_BIN_URL" ] && _OLLAMA_BIN_URL="https://github.com/ollama/ollama/releases/latest/download/ollama-darwin"
-        curl -L "$_OLLAMA_BIN_URL" -o "$HOME/.config/coda/bin/ollama" --progress-bar
-        chmod +x "$HOME/.config/coda/bin/ollama"
-        OLLAMA_BIN="$HOME/.config/coda/bin/ollama"
-        ok "Ollama downloaded"
-    else
-        ok "Ollama found at $OLLAMA_BIN"
-    fi
-
-    # LaunchAgent: runs 'ollama serve' on login — headless, no icon, always on
-    _OLLAMA_PLIST="$HOME/Library/LaunchAgents/com.coda.ollama.plist"
-    mkdir -p "$HOME/Library/LaunchAgents"
-    cat > "$_OLLAMA_PLIST" << OLLAMAPLISTEOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key><string>com.coda.ollama</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>${OLLAMA_BIN}</string>
-        <string>serve</string>
-    </array>
-    <key>RunAtLoad</key><true/>
-    <key>KeepAlive</key><true/>
-    <key>ThrottleInterval</key><integer>5</integer>
-    <key>StandardOutPath</key><string>${HOME}/.coda-error.log</string>
-    <key>StandardErrorPath</key><string>${HOME}/.coda-error.log</string>
-</dict>
-</plist>
-OLLAMAPLISTEOF
-    launchctl unload "$_OLLAMA_PLIST" 2>/dev/null || true
-    launchctl load "$_OLLAMA_PLIST" 2>/dev/null || true
-
-    # Wait for the server to be ready
-    echo -e "  ${CYAN}Starting Ollama server…${NC}"
-    _ready=false
-    for _i in $(seq 1 15); do
-        if curl -s --connect-timeout 2 "http://localhost:11434" 2>/dev/null | grep -q "Ollama"; then
-            ok "Ollama server ready"; _ready=true; break
-        fi
-        sleep 2
-    done
-    $_ready || warn "Ollama server didn't respond — continuing anyway"
-
-    EMAIL_OLLAMA_IP="localhost"
-    EMAIL_OLLAMA_URL="http://localhost:11434"
+if [ "$SKIP_AIDER" = 1 ]; then
+    if [ "$ENGINE" = aider ]; then ok "aider: skipped"; fi
+elif [ -n "$EXISTING_AIDER" ]; then
+    ok "already installed: $EXISTING_AIDER"
 else
-    ask "Where is Ollama running for the Email Assistant?"
-    echo -e "  ${GRAY}Enter 'localhost' if Ollama is on this machine, or an IP like 192.168.1.50${NC}"
-    read -p "  Ollama IP [localhost]: " EMAIL_OLLAMA_IP
-    EMAIL_OLLAMA_IP=${EMAIL_OLLAMA_IP:-localhost}
-    EMAIL_OLLAMA_IP="${EMAIL_OLLAMA_IP#http://}"
-    EMAIL_OLLAMA_IP="${EMAIL_OLLAMA_IP%%:*}"
-    EMAIL_OLLAMA_URL="http://${EMAIL_OLLAMA_IP}:11434"
+    # aider-chat supports Python 3.10–3.12.
+    VPY=""
+    for p in python3.12 python3.11 python3.10; do command -v "$p" >/dev/null && { VPY=$p; break; }; done
+    if [ -z "$VPY" ] && [ "$OS" = Darwin ]; then
+        brew install -q python@3.12 && VPY="$(brew --prefix python@3.12)/bin/python3.12"
+    fi
+    [ -n "$VPY" ] || die "aider needs Python 3.10–3.12; install one, or re-run with --skip-aider"
+    echo -e "  ${GRAY}This takes a few minutes…${NC}"
+    "$VPY" -m venv "$DATA_DIR/aider-env"
+    "$DATA_DIR/aider-env/bin/pip" install -q --upgrade pip
+    "$DATA_DIR/aider-env/bin/pip" install -q --prefer-binary aider-chat
+    ok "$DATA_DIR/aider-env"
 fi
 
-EMAIL_MODEL_READY=false
-
-while true; do
-    echo ""
-    echo -e "  Testing connection to ${CYAN}${EMAIL_OLLAMA_URL}${NC}..."
-    if curl -s --connect-timeout 5 "${EMAIL_OLLAMA_URL}" 2>/dev/null | grep -q "Ollama"; then
-        ok "Connected to Ollama!"
-        EMAIL_MODEL_READY=true
-        break
-    else
-        echo -e "  ${RED}Cannot reach Ollama at ${EMAIL_OLLAMA_URL}${NC}"
-        echo ""
-        echo "  What would you like to do?"
-        echo "    1) Try a different IP"
-        echo "    2) Retry same address"
-        echo "    3) Install Ollama on this machine  (free, runs locally)"
-        echo "    4) Skip — set up later from Preferences → Email → Pull Model"
-        echo ""
-        read -p "  Choice [1]: " RETRY_CHOICE
-        RETRY_CHOICE=${RETRY_CHOICE:-1}
-        case "$RETRY_CHOICE" in
-            1)
-                read -p "  Ollama IP: " EMAIL_OLLAMA_IP
-                EMAIL_OLLAMA_IP="${EMAIL_OLLAMA_IP#http://}"
-                EMAIL_OLLAMA_IP="${EMAIL_OLLAMA_IP%%:*}"
-                EMAIL_OLLAMA_URL="http://${EMAIL_OLLAMA_IP}:11434"
-                ;;
-            2) ;;
-            3)
-                echo ""
-                if [ "$OS" = "Darwin" ]; then
-                    echo "  Installing Ollama via Homebrew..."
-                    brew install ollama -q
-                    brew services start ollama
-                else
-                    echo "  Installing Ollama..."
-                    curl -fsSL https://ollama.com/install.sh | sh
-                fi
-                echo ""
-                echo "  Waiting for Ollama to start..."
-                sleep 4
-                EMAIL_OLLAMA_IP="localhost"
-                EMAIL_OLLAMA_URL="http://localhost:11434"
-                ;;
-            4)
-                warn "Email model skipped — use Preferences → Email → Pull Model to install later."
-                EMAIL_OLLAMA_IP="localhost"
-                break
-                ;;
-        esac
+# ── 5: Settings ─────────────────────────────────────────────────
+step 5 "Settings"
+if [ -f "$CONFIG_FILE" ] && [ "$RECONFIGURE" = 0 ]; then
+    ok "keeping your existing settings (re-run with --reconfigure to change them)"
+    CODE_DIR="$CODE_DIR" ENGINE="$ENGINE" "$PY" -c "import os,sys; sys.path.insert(0,os.environ['CODE_DIR']); import coda_common as C; c=C.load_config(); c['engine']=os.environ['ENGINE']; C.save_config(c)"
+    EMAIL_OLLAMA_IP=$("$PY" -c "import sys; sys.path.insert(0,'$CODE_DIR'); import coda_common as C; print(C.load_config()['email_ollama_ip'])")
+else
+  OLLAMA_IP=localhost; MODEL=""; API_KEY=""; PROVIDER="Ollama (local)"
+  if [ "$ENGINE" = aider ]; then
+    echo "  Which AI should aider use?"
+    echo "    1) Ollama  — local, private, free"
+    echo "    2) Gemini  — Google, has a free tier"
+    echo "    3) Claude  — Anthropic"
+    echo "    4) OpenAI"
+    ask CHOICE "Choice" 1
+    case "$CHOICE" in
+        1) PROVIDER="Ollama (local)"
+           ask OLLAMA_IP "Ollama server (localhost or an IP)" localhost
+           if curl -s --connect-timeout 4 "http://${OLLAMA_IP}:11434/api/tags" >/dev/null; then
+               echo -e "  ${GRAY}Models on that server:${NC}"
+               curl -s "http://${OLLAMA_IP}:11434/api/tags" | "$PY" -c \
+                   "import json,sys; [print('    •', m['name']) for m in json.load(sys.stdin).get('models',[])]" || true
+           else
+               warn "Ollama not reachable at ${OLLAMA_IP}:11434 — you can fix this later in Preferences"
+           fi
+           ask MODEL "Model" "qwen2.5-coder:7b" ;;
+        2) PROVIDER="Gemini"; ask API_KEY "Gemini API key (aistudio.google.com)" "" secret
+           ask MODEL "Model" "gemini-2.5-flash" ;;
+        3) PROVIDER="Claude"; ask API_KEY "Anthropic API key (console.anthropic.com)" "" secret
+           ask MODEL "Model" "claude-sonnet-5-5" ;;
+        4) PROVIDER="OpenAI"; ask API_KEY "OpenAI API key (platform.openai.com)" "" secret
+           ask MODEL "Model" "gpt-4o" ;;
+        *) die "Invalid choice" ;;
+    esac
+  else
+    ask OLLAMA_IP "Ollama server for the Email Agent (localhost or an IP)" localhost
+  fi
+    ask USER_NAME "Your first name (for email sign-offs)" ""
+    EMAIL_ADDR=""; APP_PASSWORD=""
+    if yesno "Set up the Email Agent now? (needs an app password)"; then
+        ask EMAIL_ADDR "Email address" ""
+        ask APP_PASSWORD "App password (Gmail: myaccount.google.com/apppasswords)" "" secret
     fi
-done
-
-if [ "$EMAIL_MODEL_READY" = "true" ]; then
-    echo ""
-    echo "    Downloading qwen2.5:3b (this may take several minutes)..."
-    EMAIL_OLLAMA_URL="$EMAIL_OLLAMA_URL" python3 << 'PYEOF'
-import urllib.request, json, os, sys
-
-url = os.environ['EMAIL_OLLAMA_URL']
-
-# Pull qwen2.5:3b — streaming so the connection stays alive
-data = json.dumps({'model': 'qwen2.5:3b', 'stream': True}).encode()
-req  = urllib.request.Request(f'{url}/api/pull', data=data,
-                               headers={'Content-Type': 'application/json'})
-try:
-    last_pct = -1
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        while True:
-            line = resp.readline()
-            if not line:
-                break
-            try:
-                obj   = json.loads(line)
-                total = obj.get('total', 0)
-                done  = obj.get('completed', 0)
-                if total and done:
-                    pct = int(done / total * 100)
-                    if pct != last_pct:
-                        print(f'\r    Downloading qwen2.5:3b… {pct}%', end='', flush=True)
-                        last_pct = pct
-            except Exception:
-                pass
-    print()
-except Exception as e:
-    print(f'\n    Error during download: {e}', file=sys.stderr)
-    sys.exit(1)
-
-# Create coda2.0:3b using current Ollama API (from + system fields)
-print('    Creating coda2.0:3b…')
-data = json.dumps({
-    'model': 'coda2.0:3b',
-    'from': 'qwen2.5:3b',
-    'system': ('You write emails on behalf of the user. '
-               'Write naturally and concisely in their voice. '
-               'Do not use robotic phrases or unnecessary pleasantries.'),
-    'stream': True
-}).encode()
-req  = urllib.request.Request(f'{url}/api/create', data=data,
-                               headers={'Content-Type': 'application/json'})
-try:
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        while resp.readline():
-            pass
-except Exception as e:
-    print(f'    Warning during create: {e}', file=sys.stderr)
-
-# Remove qwen2.5:3b
-print('    Removing qwen2.5:3b…')
-data = json.dumps({'name': 'qwen2.5:3b'}).encode()
-req  = urllib.request.Request(f'{url}/api/delete', data=data,
-                               headers={'Content-Type': 'application/json'},
-                               method='DELETE')
-try:
-    urllib.request.urlopen(req, timeout=30)
-except Exception:
-    pass
-
-# Verify coda2.0:3b is there
-with urllib.request.urlopen(f'{url}/api/tags', timeout=5) as r:
-    models = [m['name'] for m in json.loads(r.read()).get('models', [])]
-if any('coda2.0:3b' in m for m in models):
-    print('    Verified: coda2.0:3b is installed')
-else:
-    print('    ERROR: coda2.0:3b not found after setup', file=sys.stderr)
-    sys.exit(1)
+    ask EMAIL_OLLAMA_IP "Ollama server for the Email Agent (always local AI)" "$OLLAMA_IP"
+    ENGINE="$ENGINE" PROVIDER="$PROVIDER" OLLAMA_IP="$OLLAMA_IP" MODEL="$MODEL" API_KEY="$API_KEY" \
+    USER_NAME="$USER_NAME" EMAIL_ADDR="$EMAIL_ADDR" APP_PASSWORD="$APP_PASSWORD" \
+    EMAIL_OLLAMA_IP="$EMAIL_OLLAMA_IP" CODE_DIR="$CODE_DIR" "$PY" - << 'PYEOF'
+import os, sys
+sys.path.insert(0, os.environ['CODE_DIR'])
+import coda_common as C
+e = os.environ
+cfg = C.load_config()
+cfg.update(engine=e['ENGINE'], provider=e['PROVIDER'], ollama_ip=e['OLLAMA_IP'], model=e['MODEL'],
+           email_ollama_ip=e['EMAIL_OLLAMA_IP'])
+# Blank answers never wipe a value that is already there (e.g. from an older version).
+for key, var in (('api_key', 'API_KEY'), ('user_name', 'USER_NAME'),
+                 ('email', 'EMAIL_ADDR'), ('app_password', 'APP_PASSWORD')):
+    if e[var]:
+        cfg[key] = e[var]
+C.save_config(cfg)
 PYEOF
+    ok "saved to $CONFIG_FILE (readable only by you)"
+fi
 
-    if [ $? -eq 0 ]; then
-        ok "coda2.0:3b ready!"
+# ── 6: Email AI model ───────────────────────────────────────────
+step 6 "Email AI model (coda2.0:3b, ~2 GB)"
+if [ "$YES" = 1 ]; then
+    ok "skipped (--yes) — run 'coda email-model' or Preferences → Email → Pull Model"
+elif curl -s --connect-timeout 4 "http://${EMAIL_OLLAMA_IP}:11434/api/tags" >/dev/null; then
+    if yesno "Download it to ${EMAIL_OLLAMA_IP} now?" y; then
+        "$PY" "$CODE_DIR/coda.py" email-model --host "$EMAIL_OLLAMA_IP" \
+            || warn "failed — retry later from Preferences → Email → Pull Model"
     else
-        warn "Model setup had issues — use Preferences → Email → Pull Model to retry."
-        EMAIL_MODEL_READY=false
+        ok "skipped — Preferences → Email → Pull Model"
     fi
-fi
-
-# ── 6: Configuration ───────────────────────────────────────────
-step 6 "Writing configuration..."
-mkdir -p "$CONFIG_DIR"
-
-# Write config.json via Python (handles special characters in API keys safely)
-PROVIDER="$PROVIDER" OLLAMA_IP="$OLLAMA_IP" MODEL="$MODEL" \
-API_KEY="$API_KEY" EMAIL_PROVIDER="$EMAIL_PROVIDER" \
-EMAIL_ADDR="$EMAIL_ADDR" APP_PASSWORD="$APP_PASSWORD" \
-IMAP_SERVER="$IMAP_SERVER" SMTP_SERVER="$SMTP_SERVER" \
-ALIAS_NAME="$ALIAS_NAME" USER_NAME="$USER_NAME" \
-EMAIL_OLLAMA_IP="$EMAIL_OLLAMA_IP" \
-python3 << 'PYEOF'
-import json, os
-cfg = {
-    "provider":         os.environ["PROVIDER"],
-    "ollama_ip":        os.environ["OLLAMA_IP"],
-    "model":            os.environ["MODEL"],
-    "api_key":          os.environ["API_KEY"],
-    "custom_url":       "",
-    "email_provider":   os.environ["EMAIL_PROVIDER"],
-    "email":            os.environ["EMAIL_ADDR"],
-    "app_password":     os.environ["APP_PASSWORD"],
-    "imap_server":      os.environ["IMAP_SERVER"],
-    "smtp_server":      os.environ["SMTP_SERVER"],
-    "alias":            os.environ["ALIAS_NAME"],
-    "refresh_minutes":  5,
-    "user_name":        os.environ["USER_NAME"],
-    "email_ollama_ip":  os.environ["EMAIL_OLLAMA_IP"],
-}
-path = os.path.expanduser("~/.config/coda/config.json")
-with open(path, "w") as f:
-    json.dump(cfg, f, indent=2)
-os.chmod(path, 0o600)
-PYEOF
-
-# Write email.conf (used by the email agent)
-EMAIL_ADDR="$EMAIL_ADDR" APP_PASSWORD="$APP_PASSWORD" \
-IMAP_SERVER="$IMAP_SERVER" SMTP_SERVER="$SMTP_SERVER" \
-EMAIL_PROVIDER="$EMAIL_PROVIDER" EMAIL_OLLAMA_IP="$EMAIL_OLLAMA_IP" \
-USER_NAME="$USER_NAME" \
-python3 << 'PYEOF'
-import os
-lines = [
-    f"EMAIL={os.environ['EMAIL_ADDR']}",
-    f"APP_PASSWORD={os.environ['APP_PASSWORD']}",
-    f"IMAP_SERVER={os.environ['IMAP_SERVER']}",
-    f"SMTP_SERVER={os.environ['SMTP_SERVER']}",
-    f"PROVIDER={os.environ['EMAIL_PROVIDER']}",
-    f"EMAIL_OLLAMA_IP={os.environ['EMAIL_OLLAMA_IP']}",
-    f"USER_NAME={os.environ.get('USER_NAME', '')}",
-]
-path = os.path.expanduser("~/.config/coda/email.conf")
-os.makedirs(os.path.dirname(path), exist_ok=True)
-with open(path, "w") as f:
-    f.write("\n".join(lines) + "\n")
-os.chmod(path, 0o600)
-PYEOF
-
-ok "Configuration saved to ~/.config/coda/"
-
-# ── 7: Terminal alias ──────────────────────────────────────────
-step 7 "Setting up '${ALIAS_NAME}' terminal command..."
-
-if [ "$OS" = "Darwin" ]; then
-    RC_FILE="$HOME/.zshrc"
-    sed -i '' '/# Coda - Local AI/d' "$RC_FILE" 2>/dev/null || true
-    sed -i '' '/alias coda/d'        "$RC_FILE" 2>/dev/null || true
 else
-    RC_FILE="$HOME/.bashrc"
-    sed -i '/# Coda - Local AI/d' "$RC_FILE" 2>/dev/null || true
-    sed -i '/alias coda/d'        "$RC_FILE" 2>/dev/null || true
+    warn "Ollama not reachable at ${EMAIL_OLLAMA_IP}:11434 — skipped"
+    if [ "$OS" = Darwin ]; then echo -e "  ${GRAY}Install it with: brew install ollama && brew services start ollama${NC}"
+    else echo -e "  ${GRAY}Install it from https://ollama.com, then Preferences → Email → Pull Model${NC}"; fi
 fi
 
-if [ "$PROVIDER" = "Ollama (local)" ]; then
-    ALIAS_CMD="source ~/aider-env/bin/activate && OLLAMA_API_BASE=http://${OLLAMA_IP}:11434 aider --model ollama_chat/${MODEL}"
-elif [ "$PROVIDER" = "Gemini" ]; then
-    ALIAS_CMD="source ~/aider-env/bin/activate && GEMINI_API_KEY=${API_KEY} aider --model gemini/${MODEL}"
-elif [ "$PROVIDER" = "Claude" ]; then
-    ALIAS_CMD="source ~/aider-env/bin/activate && ANTHROPIC_API_KEY=${API_KEY} aider --model ${MODEL}"
-elif [ "$PROVIDER" = "OpenAI" ]; then
-    ALIAS_CMD="source ~/aider-env/bin/activate && OPENAI_API_KEY=${API_KEY} aider --model ${MODEL}"
+# ── 7: Desktop integration (also removes old duplicates) ───────
+step 7 "Launcher, autostart and right-click menu"
+INTEGRATE_ARGS=()
+[ "$YES" = 1 ] && INTEGRATE_ARGS+=(--yes)
+[ "$AUTOSTART" = 0 ] && INTEGRATE_ARGS+=(--no-autostart)
+"$PY" "$CODE_DIR/coda.py" integrate "${INTEGRATE_ARGS[@]}"
+
+echo
+echo -e "  ${GREEN}${BOLD}✓  Coda $("$PY" "$CODE_DIR/coda.py" version | cut -d' ' -f2) is installed.${RESET}"
+echo
+echo "    Tray icon      search 'Coda' in your apps (starts on login)"
+[ "$OS" = Linux ] && echo "    Right-click    any folder in Files → Call Coda"
+echo "    Terminal       cd my-project && coda"
+echo "    Health check   coda doctor"
+echo "    Uninstall      coda uninstall   (or Preferences → General)"
+echo
+if [ "$START" = 1 ]; then
+    "$PY" "$CODE_DIR/coda.py" tray
+    ok "Coda is running — look for the C icon"
 fi
-
-{
-    echo ""
-    echo "# Coda - Local AI coding assistant"
-    printf "alias %s='%s'\n" "$ALIAS_NAME" "$ALIAS_CMD"
-    if [ "$OS" = "Darwin" ]; then
-        printf "alias coda-start='launchctl start com.coda.tray || %s %s/coda-tray.py &'\n" "${PYTHON_BIN}" "${CODA_DIR}"
-    fi
-} >> "$RC_FILE"
-
-if [ "$OS" = "Darwin" ]; then
-    ok "'${ALIAS_NAME}' command ready  (run: source ~/.zshrc)"
-else
-    ok "'${ALIAS_NAME}' command ready  (run: source ~/.bashrc)"
-fi
-
-# ── 8: Desktop integration ─────────────────────────────────────
-step 8 "Setting up desktop integration..."
-
-if [ "$OS" = "Darwin" ]; then
-    PLIST_DIR="$HOME/Library/LaunchAgents"
-    mkdir -p "$PLIST_DIR"
-    PYTHON_BIN=$(which python3)
-    cat > "$PLIST_DIR/com.coda.plist" << PLISTEOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.coda.tray</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>${PYTHON_BIN}</string>
-        <string>${CODA_DIR}/coda-tray.py</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <dict>
-        <key>SuccessfulExit</key>
-        <false/>
-    </dict>
-    <key>ThrottleInterval</key>
-    <integer>5</integer>
-    <key>StandardOutPath</key>
-    <string>${HOME}/.coda-error.log</string>
-    <key>StandardErrorPath</key>
-    <string>${HOME}/.coda-error.log</string>
-</dict>
-</plist>
-PLISTEOF
-    # Reload the plist so any changes take effect
-    launchctl unload "$PLIST_DIR/com.coda.plist" 2>/dev/null || true
-    launchctl load "$PLIST_DIR/com.coda.plist" 2>/dev/null || true
-    ok "LaunchAgent installed — Coda will start on login"
-
-    # Create Coda.app so it appears in Spotlight and Launchpad
-    APP_DIR="$HOME/Applications/Coda.app"
-    mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
-    cat > "$APP_DIR/Contents/MacOS/Coda" << EXECEOF
-#!/bin/bash
-# If Coda is already running, do nothing
-if pgrep -f "coda-tray.py" > /dev/null 2>&1; then
-    exit 0
-fi
-# Remove any stale lock file from a previous crash
-rm -f /tmp/coda-tray.lock
-# Start via launchd (proper macOS way — uses the LaunchAgent config)
-launchctl kickstart "gui/\$(id -u)/com.coda.tray" 2>/dev/null && exit 0
-launchctl start com.coda.tray 2>/dev/null && exit 0
-# Fallback: direct launch if launchd is unavailable
-exec "${PYTHON_BIN}" "${CODA_DIR}/coda-tray.py" >> "\$HOME/.coda-error.log" 2>&1
-EXECEOF
-    chmod +x "$APP_DIR/Contents/MacOS/Coda"
-
-    # Generate .icns so Spotlight/Launchpad shows the C icon, not Python's rocket
-    _ICON_TMP=$(mktemp -d)
-    mkdir -p "$_ICON_TMP/coda.iconset"
-    python3 - << PYEOF 2>/dev/null
-from PIL import Image, ImageDraw, ImageFont
-S = 512
-img = Image.new('RGBA', (S, S), (0,0,0,0))
-d = ImageDraw.Draw(img)
-d.ellipse([8, 8, S-8, S-8], fill='white', outline='black', width=8)
-try:
-    f = ImageFont.truetype('${CODA_DIR}/ithaca-font/Ithaca-LVB75.ttf', int(S*0.75))
-    d.text((S//2 + int(S*0.03), S//2), 'C', fill='black', font=f, anchor='mm')
-except Exception:
-    pass
-img.save('${_ICON_TMP}/coda.png')
-PYEOF
-    if [ -f "${_ICON_TMP}/coda.png" ]; then
-        for _sz in 16 32 64 128 256 512; do
-            sips -z $_sz $_sz "${_ICON_TMP}/coda.png" \
-                --out "${_ICON_TMP}/coda.iconset/icon_${_sz}x${_sz}.png" >/dev/null 2>&1
-        done
-        iconutil -c icns "${_ICON_TMP}/coda.iconset" \
-            -o "$APP_DIR/Contents/Resources/AppIcon.icns" 2>/dev/null && \
-            ok "Coda.app icon generated"
-    fi
-    rm -rf "$_ICON_TMP"
-
-    cat > "$APP_DIR/Contents/Info.plist" << INFOPEOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleName</key><string>Coda</string>
-    <key>CFBundleDisplayName</key><string>Coda</string>
-    <key>CFBundleIdentifier</key><string>com.sebamuhr.coda</string>
-    <key>CFBundleVersion</key><string>1.0</string>
-    <key>CFBundleExecutable</key><string>Coda</string>
-    <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleIconFile</key><string>AppIcon</string>
-    <key>LSUIElement</key><true/>
-</dict>
-</plist>
-INFOPEOF
-    # Force Spotlight to index the new app
-    mdimport "$APP_DIR" 2>/dev/null || true
-
-    # Pin Coda to the Dock so it's always one click away
-    defaults write com.apple.dock persistent-apps -array-add \
-        "<dict><key>tile-data</key><dict><key>file-data</key><dict>\
-<key>_CFURLString</key><string>${APP_DIR}</string>\
-<key>_CFURLStringType</key><integer>0</integer>\
-</dict></dict></dict>" 2>/dev/null || true
-    killall Dock 2>/dev/null || true
-    ok "Coda.app pinned to the Dock — click it anytime to launch"
-else
-    # Nautilus right-click extension
-    mkdir -p "$HOME/.local/share/nautilus-python/extensions/"
-    curl -fsSL "${REPO}/coda_extension.py" \
-         -o "$HOME/.local/share/nautilus-python/extensions/coda_extension.py" -q
-    nautilus -q 2>/dev/null || true
-    ok "Right-click 'Call Coda' installed"
-
-    # Icon
-    mkdir -p ~/.local/share/icons
-    cat > ~/.local/share/icons/coda.svg << 'SVGEOF'
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <rect width="100" height="100" rx="20" fill="#ffffff" stroke="#000000" stroke-width="4"/>
-  <text x="50" y="72" font-family="DejaVu Sans,sans-serif" font-size="72"
-        font-weight="bold" fill="#000000" text-anchor="middle">C</text>
-</svg>
-SVGEOF
-
-    # App launcher entry
-    mkdir -p ~/.local/share/applications
-    cat > ~/.local/share/applications/coda.desktop << DESKEOF
-[Desktop Entry]
-Version=1.0
-Type=Application
-Name=Coda
-Comment=Your local AI assistant
-Exec=/usr/bin/python3 ${CODA_DIR}/coda-tray.py
-Icon=${HOME}/.local/share/icons/coda.svg
-Terminal=false
-Categories=Development;Utility;
-StartupNotify=false
-DESKEOF
-    chmod +x ~/.local/share/applications/coda.desktop
-    [ -d ~/Desktop ] && cp ~/.local/share/applications/coda.desktop ~/Desktop/ \
-        && chmod +x ~/Desktop/coda.desktop
-
-    # Autostart on login
-    mkdir -p ~/.config/autostart
-    cat > ~/.config/autostart/coda.desktop << AUTOEOF
-[Desktop Entry]
-Type=Application
-Name=Coda
-Exec=/usr/bin/python3 ${CODA_DIR}/coda-tray.py
-Hidden=false
-NoDisplay=false
-X-GNOME-Autostart-enabled=true
-AUTOEOF
-
-    update-desktop-database ~/.local/share/applications/ 2>/dev/null || true
-    ok "App launcher entry, desktop icon and autostart on login ready"
-fi
-
-# ══════════════════════════════════════════════════════════════
-#  DONE
-# ══════════════════════════════════════════════════════════════
-echo ""
-hr
-echo -e "  ${GREEN}${BOLD}✓  Coda installed!${RESET}"
-hr
-echo ""
-echo "  How to use:"
-echo ""
-if [ "$OS" = "Darwin" ]; then
-    echo -e "  ${CYAN}System tray:${NC}"
-    echo "    Coda starts automatically on login."
-    echo "    The C icon appears in your menu bar — click it to code or check email."
-    echo ""
-    echo -e "  ${CYAN}Terminal:${NC}"
-    echo "    source ~/.zshrc"
-    echo "    cd ~/my-project && ${ALIAS_NAME}"
-else
-    echo -e "  ${CYAN}System tray:${NC}"
-    echo "    Search 'Coda' in your app launcher and click it."
-    echo "    The C icon appears in your taskbar — click it to code or check email."
-    echo ""
-    echo -e "  ${CYAN}Right-click any project folder:${NC}"
-    echo "    Open file manager → right-click a folder → Call Coda"
-    echo ""
-    echo -e "  ${CYAN}Terminal:${NC}"
-    echo "    source ~/.bashrc"
-    echo "    cd ~/my-project && ${ALIAS_NAME}"
-fi
-echo ""
-echo -e "  ${CYAN}Change settings anytime:${NC}"
-echo "    C icon in taskbar → Preferences"
-echo ""
-hr
-echo ""
-read -p "  Start Coda now? [Y/n]: " START_NOW
-if [ "$(lc "$START_NOW")" != "n" ]; then
-    python3 "${CODA_DIR}/coda-tray.py" &
-    echo ""
-    ok "Coda is running — look for the C icon in your menu bar!"
-fi
-echo ""
