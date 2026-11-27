@@ -84,7 +84,7 @@ def load_prefs():
 # --- Mail + contacts (shared with the `coda mail` command) ---
 from coda_mail import (  # noqa: E402
     load_contacts, save_contacts, find_contact_prompt, fetch_emails, fetch_drafts,
-    fetch_inbox, fetch_thread, format_thread, save_draft, send_email)
+    fetch_inbox, fetch_thread, format_thread, save_draft, send_email, cloud_write_stream)
 
 def build_corrections_context(sender_raw, contacts, limit=3):
     # The old "learn from your edits" system was removed: storing past email
@@ -209,6 +209,8 @@ def _ollama_url():
     return C.ollama_url(_cfg()['EMAIL_OLLAMA_IP']) + '/api/generate'
 
 def ask_coda(context, instruction, mode='reply', contact_prompt='', corrections_context=''):
+    if C.email_ai_settings()[0] != 'local':
+        return ''.join(ask_coda_stream(context, instruction, mode, contact_prompt, corrections_context))
     prompt = _build_prompt(context, instruction, mode, contact_prompt, corrections_context)
     try:
         resp = requests.post(
@@ -226,6 +228,9 @@ def ask_coda(context, instruction, mode='reply', contact_prompt='', corrections_
 
 def ask_coda_stream(context, instruction, mode='reply', contact_prompt='', corrections_context=''):
     prompt = _build_prompt(context, instruction, mode, contact_prompt, corrections_context)
+    if C.email_ai_settings()[0] != 'local':
+        yield from cloud_write_stream(prompt)
+        return
     try:
         resp = requests.post(
             _ollama_url(),
@@ -257,7 +262,7 @@ class EmailApp:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("Coda — Email Agent")
+        self._update_title()
         self.root.resizable(True, True)
 
         prefs = load_prefs()
@@ -303,7 +308,16 @@ class EmailApp:
         save_prefs(self.root.geometry())
         self.root.withdraw()   # hide, stay alive in background
 
+    def _update_title(self):
+        ai, model, _ = C.email_ai_settings()
+        if ai == 'local':
+            self.root.title("Coda — Email Agent")
+        else:
+            self.root.title(f"Coda — Email Agent  ·  ⚠ replies written by {model} "
+                            f"({C.EMAIL_AI[ai]['company']}, cloud)")
+
     def _show_window(self):
+        self._update_title()
         self.root.deiconify()
         self.root.lift()
         self.root.focus_force()

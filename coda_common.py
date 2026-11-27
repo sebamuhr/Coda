@@ -48,6 +48,46 @@ EMAIL_BASE_MODEL = 'qwen2.5:3b'
 EMAIL_SYSTEM = ('You write emails on behalf of the user. Write naturally and concisely '
                 'in their voice. Do not use robotic phrases or unnecessary pleasantries.')
 
+# Which AI writes emails in the Email Agent window. Local is the default and
+# the only private option; the cloud ones send the email thread to that company.
+EMAIL_AI = {
+    'local':  {'label': f'Local ({EMAIL_MODEL}) — private', 'company': None},
+    'claude': {'label': 'Claude',  'company': 'Anthropic'},
+    'gemini': {'label': 'Gemini',  'company': 'Google'},
+    'openai': {'label': 'OpenAI',  'company': 'OpenAI'},
+}
+EMAIL_AI_MODELS = {
+    'claude': ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'],
+    'gemini': ['gemini-2.5-flash', 'gemini-2.5-pro'],
+    'openai': ['gpt-4o-mini', 'gpt-4o'],
+}
+# Same provider for coding (aider) → its key can be reused for email.
+EMAIL_AI_CODING_PROVIDER = {'claude': 'Claude', 'gemini': 'Gemini', 'openai': 'OpenAI'}
+
+
+def email_cloud_warning(ai):
+    company = EMAIL_AI[ai]['company']
+    return (f"With {EMAIL_AI[ai]['label']}, the email you reply to — the whole thread — plus your "
+            f"instructions and your private notes about the contact are sent to {company} "
+            f"to write the reply.\n\nYour mail password is never sent. The local model keeps "
+            f"everything on your own computer or server.")
+
+
+def email_ai_settings(cfg=None):
+    """(ai, model, key) for the Email Agent."""
+    cfg = cfg or load_config()
+    ai = cfg.get('email_ai', 'local')
+    if ai not in EMAIL_AI:
+        ai = 'local'
+    if ai == 'local':
+        return ai, EMAIL_MODEL, ''
+    model = cfg.get('email_ai_model') or EMAIL_AI_MODELS[ai][0]
+    key = cfg.get('email_ai_key', '')
+    if not key and cfg.get('provider') == EMAIL_AI_CODING_PROVIDER[ai]:
+        key = cfg.get('api_key', '')
+    return ai, model, key
+
+
 PROVIDERS = ['Ollama (local)', 'Gemini', 'OpenAI', 'Claude']
 PROVIDER_MODELS = {
     'Ollama (local)': ['qwen2.5-coder:7b', 'qwen2.5-coder:3b'],
@@ -83,6 +123,9 @@ DEFAULT_CONFIG = {
     'user_name':        '',
     'theme':            'light',
     'email_ollama_ip':  'localhost',
+    'email_ai':         'local',
+    'email_ai_model':   '',
+    'email_ai_key':     '',
 }
 
 

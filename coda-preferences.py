@@ -264,34 +264,92 @@ class PreferencesApp:
         ttk.Separator(f).grid(row=9, column=0, columnspan=2, sticky='ew', pady=10)
 
         ttk.Label(f, text="Email AI", font=('', 11, 'bold')).grid(row=10, column=0, columnspan=2, sticky='w', pady=(0,6))
-        ttk.Label(f, text="Model:").grid(row=11, column=0, sticky='w', pady=4)
-        ttk.Label(f, text="coda2.0:3b (local)", font=('', 10, 'bold')).grid(row=11, column=1, sticky='w', pady=4)
+        ttk.Label(f, text="Writes with:").grid(row=11, column=0, sticky='w', pady=4)
+        self.var_email_ai = tk.StringVar()
+        self._email_ai_labels = {v['label']: k for k, v in C.EMAIL_AI.items()}
+        self.cb_email_ai = ttk.Combobox(f, textvariable=self.var_email_ai, state='readonly', width=28,
+                                        values=list(self._email_ai_labels))
+        self.cb_email_ai.grid(row=11, column=1, sticky='ew', pady=4)
+        self.cb_email_ai.bind('<<ComboboxSelected>>', self._on_email_ai_selected)
+        self._email_ai_current = 'local'
 
-        ttk.Label(f, text="Ollama IP:").grid(row=12, column=0, sticky='w', pady=4)
+        # Local model (default)
+        self.local_box = ttk.Frame(f)
+        self.local_box.grid(row=12, column=0, columnspan=2, sticky='ew')
+        lb = self.local_box
+        ttk.Label(lb, text="Ollama IP:").grid(row=0, column=0, sticky='w', pady=4)
         self.var_email_ollama_ip = tk.StringVar()
-        email_ip_row = ttk.Frame(f)
-        email_ip_row.grid(row=12, column=1, sticky='ew', pady=4)
+        email_ip_row = ttk.Frame(lb)
+        email_ip_row.grid(row=0, column=1, sticky='ew', pady=4)
         ttk.Entry(email_ip_row, textvariable=self.var_email_ollama_ip, width=22).pack(side='left')
         ttk.Button(email_ip_row, text='↺ Check', width=8,
                    command=self._check_model_status).pack(side='left', padx=(6, 0))
-
-        ttk.Label(f, text="Status:").grid(row=14, column=0, sticky='w', pady=4)
-        self._model_status_lbl = ttk.Label(f, text="Checking...", foreground='gray')
-        self._model_status_lbl.grid(row=14, column=1, sticky='w', pady=4)
-
-        self._pull_btn = ttk.Button(f, text='⬇  Pull Model',
-                                     command=self._pull_model, width=16)
-        self._pull_btn.grid(row=15, column=1, sticky='w', pady=(0, 4))
+        ttk.Label(lb, text="Status:").grid(row=1, column=0, sticky='w', pady=4)
+        self._model_status_lbl = ttk.Label(lb, text="Checking...", foreground='gray')
+        self._model_status_lbl.grid(row=1, column=1, sticky='w', pady=4)
+        self._pull_btn = ttk.Button(lb, text='⬇  Pull Model', command=self._pull_model, width=16)
+        self._pull_btn.grid(row=2, column=1, sticky='w', pady=(0, 4))
         self._pull_btn.grid_remove()
-
-        self._pull_progress = ttk.Label(f, text='', foreground='gray', font=('', 8))
-        self._pull_progress.grid(row=16, column=0, columnspan=2, sticky='w')
+        self._pull_progress = ttk.Label(lb, text='', foreground='gray', font=('', 8))
+        self._pull_progress.grid(row=3, column=0, columnspan=2, sticky='w')
         self._pull_progress.grid_remove()
+        ttk.Label(lb, text="Private: your emails never leave your computer or your own server.",
+                  foreground='gray', font=('', 8)).grid(row=4, column=0, columnspan=2, sticky='w')
+        lb.columnconfigure(1, weight=1)
 
-        ttk.Label(f, text="The email assistant always runs locally for privacy.",
-                  foreground='gray', font=('', 8)).grid(row=17, column=0, columnspan=2, sticky='w')
+        # Cloud model (opt-in)
+        self.cloud_box = ttk.Frame(f)
+        self.cloud_box.grid(row=13, column=0, columnspan=2, sticky='ew')
+        cb = self.cloud_box
+        ttk.Label(cb, text="Model:").grid(row=0, column=0, sticky='w', pady=4)
+        self.var_email_ai_model = tk.StringVar()
+        self.cb_email_ai_model = ttk.Combobox(cb, textvariable=self.var_email_ai_model, width=28)
+        self.cb_email_ai_model.grid(row=0, column=1, sticky='ew', pady=4)
+        ttk.Label(cb, text="API Key:").grid(row=1, column=0, sticky='w', pady=4)
+        self.var_email_ai_key = tk.StringVar()
+        ttk.Entry(cb, textvariable=self.var_email_ai_key, show='*', width=30).grid(row=1, column=1, sticky='ew', pady=4)
+        self.lbl_email_ai_keyhelp = ttk.Label(cb, text="", foreground='gray', font=('', 8))
+        self.lbl_email_ai_keyhelp.grid(row=2, column=0, columnspan=2, sticky='w')
+        self.lbl_cloud_warning = tk.Label(cb, text="", fg='#b00020', font=('', 9, 'bold'),
+                                          wraplength=470, justify='left', anchor='w')
+        self.lbl_cloud_warning.grid(row=3, column=0, columnspan=2, sticky='ew', pady=(6, 0))
+        cb.columnconfigure(1, weight=1)
 
         f.columnconfigure(1, weight=1)
+
+    def _email_ai_key(self):
+        return self._email_ai_labels.get(self.var_email_ai.get(), 'local')
+
+    def _on_email_ai_selected(self, event=None):
+        ai = self._email_ai_key()
+        if ai != 'local' and self._email_ai_current == 'local':
+            if not messagebox.askyesno(
+                    "Send your emails to the cloud?",
+                    "⚠  Privacy warning\n\n" + C.email_cloud_warning(ai) +
+                    "\n\nUse " + C.EMAIL_AI[ai]['label'] + " for writing emails anyway?",
+                    icon='warning', default='no', parent=self.root):
+                self.var_email_ai.set(C.EMAIL_AI['local']['label'])
+                ai = 'local'
+        self._email_ai_current = ai
+        self._show_email_ai(ai)
+
+    def _show_email_ai(self, ai):
+        if ai == 'local':
+            self.cloud_box.grid_remove()
+            self.local_box.grid()
+            return
+        self.local_box.grid_remove()
+        self.cloud_box.grid()
+        models = C.EMAIL_AI_MODELS[ai]
+        self.cb_email_ai_model['values'] = models
+        if self.var_email_ai_model.get() not in models:
+            self.var_email_ai_model.set(models[0])
+        help_url = {'claude': 'console.anthropic.com', 'gemini': 'aistudio.google.com',
+                    'openai': 'platform.openai.com'}[ai]
+        same = self.var_provider.get() == C.EMAIL_AI_CODING_PROVIDER[ai]
+        self.lbl_email_ai_keyhelp.config(
+            text=f"Get a key at {help_url}" + ("  ·  leave empty to reuse the key from the Call Coda tab" if same else ""))
+        self.lbl_cloud_warning.config(text="⚠  " + C.email_cloud_warning(ai).split("\n\n")[0])
 
     def _on_email_provider_change(self, event=None):
         imap, smtp = EMAIL_IMAP.get(self.var_email_prov.get(), ("", ""))
@@ -454,6 +512,12 @@ class PreferencesApp:
         self.var_name.set(c.get('user_name', ''))
         self.var_theme.set(c.get('theme', 'light').capitalize())
         self.var_email_ollama_ip.set(c.get('email_ollama_ip', 'localhost'))
+        ai = c.get('email_ai', 'local') if c.get('email_ai') in C.EMAIL_AI else 'local'
+        self._email_ai_current = ai
+        self.var_email_ai.set(C.EMAIL_AI[ai]['label'])
+        self.var_email_ai_model.set(c.get('email_ai_model', ''))
+        self.var_email_ai_key.set(c.get('email_ai_key', ''))
+        self._show_email_ai(ai)
         self.root.after(400, self._check_model_status)
 
     # ── Save ──────────────────────────────────────────
@@ -489,6 +553,9 @@ class PreferencesApp:
             "email_sync_count":  sync_count,
             "theme":             self.var_theme.get().lower(),
             "email_ollama_ip":   self.var_email_ollama_ip.get().strip() or 'localhost',
+            "email_ai":          self._email_ai_key(),
+            "email_ai_model":    self.var_email_ai_model.get().strip(),
+            "email_ai_key":      self.var_email_ai_key.get().strip(),
         })
 
         for stale in ('alias', 'learning_mode', 'email_ai_provider', 'email_ai_key', 'custom_url'):

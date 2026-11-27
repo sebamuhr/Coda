@@ -362,3 +362,119 @@ def contact_for(address):
             if addr.lower().strip() and addr.lower().strip() in (address or '').lower():
                 return c.get('name', ''), c.get('prompt', '')
     return '', ''
+
+
+# ── Cloud AI for writing emails (opt-in; local is the default) ────────
+def _sse_json(resp):
+    """Yield the JSON payloads of a server-sent-events response."""
+    for raw in resp.iter_lines():
+        line = raw.decode('utf-8', 'ignore') if isinstance(raw, bytes) else raw
+        if not line.startswith('data:'):
+            continue
+        data = line[5:].strip()
+        if data == '[DONE]':
+            return
+        try:
+            yield json.loads(data)
+        except ValueError:
+            continue
+
+
+def _http_error(resp, who):
+    try:
+        msg = resp.json().get('error', {})
+        msg = msg.get('message', msg) if isinstance(msg, dict) else msg
+    except ValueError:
+        msg = resp.text[:200]
+    if resp.status_code in (401, 403) or 'api key' in str(msg).lower():
+        return f"⚠ {who} rejected the API key — check it in Preferences → Email.\n\n({msg})"
+    if resp.status_code == 429:
+        return f"⚠ {who} rate limit or quota reached — try again shortly.\n\n({msg})"
+    return f"⚠ {who} error {resp.status_code}: {msg}"
+
+
+def _claude_stream(prompt, model, key):
+    try:
+        import anthropic
+    except ImportError:
+        yield "⚠ The 'anthropic' package is missing — re-run the Coda installer."
+        return
+    client = anthropic.Anthropic(api_key=key)
+    kwargs = dict(model=model, max_tokens=4096, system=C.EMAIL_SYSTEM,
+                  output_config={'effort': 'low'},
+                  messages=[{'role': 'user', 'content': prompt}])
+    try:
+        if model in ('claude-opus-5-5', 'claude-sonnet-5-5'):
+            # If a safety check declines, let the API retry on a fallback model.
+            ctx = client.beta.messages.stream(betas=['server-side-fallback-2026-07-01'],
+                                              fallbacks='default', **kwargs)
+        else:
+            ctx = client.messages.stream(**kwargs)
+        with ctx as stream:
+            for text in stream.text_stream:
+                yield text
+            final = stream.get_final_message()
+        if final.stop_reason == 'refusal':
+            yield '\n\n⚠ Claude declined to write this email.'
+        elif final.stop_reason == 'max_tokens':
+            yield '\n\n⚠ (cut off — the reply was too long)'
+    except anthropic.AuthenticationError:
+        yield "⚠ Anthropic rejected the API key — check it in Preferences → Email."
+    except anthropic.PermissionDeniedError as e:
+        yield f"⚠ This API key may not use {model}: {e.message}"
+    except anthropic.NotFoundError:
+        yield f"⚠ Unknown Claude model '{model}' — pick another in Preferences → Email."
+    except anthropic.RateLimitError:
+        yield "⚠ Claude rate limit reached — try again in a minute."
+    except anthropic.APIStatusError as e:
+        yield f"⚠ Claude error {e.status_code}: {e.message}"
+    except anthropic.APIConnectionError:
+        yield "⚠ Could not reach Anthropic — check your internet connection."
+
+
+def _gemini_stream(prompt, model, key):
+    import requests
+    url = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse'
+    body = {'systemInstruction': {'parts': [{'text': C.EMAIL_SYSTEM}]},
+            'contents': [{'role': 'user', 'parts': [{'text': prompt}]}]}
+    with requests.post(url, json=body, headers={'x-goog-api-key': key}, stream=True, timeout=120) as r:
+        if r.status_code != 200:
+            yield _http_error(r, 'Google Gemini')
+            return
+        for obj in _sse_json(r):
+            for cand in obj.get('candidates', []):
+                for part in cand.get('content', {}).get('parts', []):
+                    if part.get('text'):
+                        yield part['text']
+
+
+def _openai_stream(prompt, model, key):
+    import requests
+    body = {'model': model, 'stream': True,
+            'messages': [{'role': 'system', 'content': C.EMAIL_SYSTEM},
+                         {'role': 'user', 'content': prompt}]}
+    with requests.post('https://api.openai.com/v1/chat/completions', json=body, stream=True,
+                       headers={'Authorization': f'Bearer {key}'}, timeout=120) as r:
+        if r.status_code != 200:
+            yield _http_error(r, 'OpenAI')
+            return
+        for obj in _sse_json(r):
+            for ch in obj.get('choices', []):
+                text = (ch.get('delta') or {}).get('content')
+                if text:
+                    yield text
+
+
+def cloud_write_stream(prompt, cfg=None):
+    """Stream an email written by the cloud AI chosen in Preferences."""
+    ai, model, key = C.email_ai_settings(cfg)
+    if ai == 'local':
+        raise ValueError('local model selected')
+    if not key:
+        yield f"⚠ No {C.EMAIL_AI[ai]['label']} API key — add one in Preferences → Email."
+        return
+    try:
+        yield from {'claude': _claude_stream, 'gemini': _gemini_stream,
+                    'openai': _openai_stream}[ai](prompt, model, key)
+    except Exception as e:
+        yield f"⚠ Error from {C.EMAIL_AI[ai]['label']}: {e}"

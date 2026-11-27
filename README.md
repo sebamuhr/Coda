@@ -22,7 +22,7 @@ This is Coda — a coding assistant and email agent that sits quietly in your sy
 | **Clean install & uninstall** | One command installs, `coda update` updates, `coda uninstall` removes every trace |
 | **Preferences window** | Configure everything from a clean UI — no config files to edit |
 | **Single-instance windows** | Email Agent and Preferences hide when you close them, reopen instantly from tray |
-| **Privacy first** | The Email Agent always uses a local model — your emails never leave your machine or your own Ollama server |
+| **Privacy first** | The Email Agent uses a local model by default — your emails never leave your machine or your own Ollama server. Claude, Gemini or OpenAI are opt-in, with a clear warning |
 | **Aider-powered coding** | Git commit on every change, `/undo`, `/diff`, full file editing |
 
 ---
@@ -106,7 +106,9 @@ Type `/undo` to roll back the last change instantly.
 
 Closing the email window with X does **not** quit it — click **C → Email Agent** and it reappears instantly.
 
-**Privacy:** the Email Agent always runs on a small local model (`coda2.0:3b`, based on Qwen 2.5 3B) through Ollama — on this computer or on your own server. Coda connects straight to your mail provider over IMAP/SMTP with an app password. No email content is ever sent to a cloud AI.
+**Privacy:** by default the Email Agent writes with a small local model (`coda2.0:3b`, based on Qwen 2.5 3B) through Ollama — on this computer or on your own server — so no email content leaves your machines. Coda connects straight to your mail provider over IMAP/SMTP with an app password.
+
+**Want stronger writing?** In **Preferences → Email → Writes with** you can choose **Claude**, **Gemini** or **OpenAI** with your own API key. Coda warns you first, because the email thread you reply to, your instructions and your contact notes are then sent to that company. Your mail password never is. While a cloud model is active, the Email Agent's title bar says so.
 
 ![Email Agent](assistant1.png)
 ![Email Agent writing a reply](assistant2.png)

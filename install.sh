@@ -143,7 +143,7 @@ VENV="$DATA_DIR/venv"
 [ -x "$VENV/bin/python3" ] || python3 -m venv --system-site-packages "$VENV" \
     || die "could not create a Python venv (on Ubuntu: sudo apt install python3-venv)"
 "$VENV/bin/python3" -m pip install -q --upgrade pip
-"$VENV/bin/python3" -m pip install -q pystray pillow requests
+"$VENV/bin/python3" -m pip install -q pystray pillow requests anthropic
 PY="$VENV/bin/python3"
 ok "$VENV"
 

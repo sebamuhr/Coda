@@ -112,7 +112,7 @@ EOF
 
 - Email content stays between this computer, the user's mail provider and you. Don't send it to any other tool, website or API, and don't save it to files outside the user's project.
 - Never print, log or ask for the app password. It is stored in `~/.config/coda/config.json`, which only the user can read; don't open that file.
-- Coda's own Email Agent window uses a local model (`coda2.0:3b` via Ollama). Run `coda email-model` only if the user asks for it: it downloads about 2 GB.
+- Coda's own Email Agent window writes with a local model (`coda2.0:3b` via Ollama) by default. The user can switch it to Claude, Gemini or OpenAI in Preferences → Email; leave that choice to them. Run `coda email-model` only if the user asks for it: it downloads about 2 GB.
 
 ## Other commands
 
